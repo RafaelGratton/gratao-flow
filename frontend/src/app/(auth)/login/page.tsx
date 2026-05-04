@@ -49,8 +49,8 @@ function LoginContent() {
   } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      email: "admin@gratao.local",
-      password: "admin123"
+      email: "",
+      password: ""
     }
   });
 

@@ -1,6 +1,6 @@
 # Fluxo de demo
 
-1. Entrar em http://localhost:3000 com admin@gratao.local / admin123.
+1. Entrar em http://localhost:3000 com as credenciais definidas em ADMIN_EMAIL e ADMIN_PASSWORD.
 2. Criar um cliente realista em Clientes.
 3. Criar uma OS com um único produto, tamanho, cor, quantidade e serviços.
 4. Abrir a OS e registrar o corte.

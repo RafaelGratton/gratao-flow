@@ -1,4 +1,5 @@
 from decimal import Decimal
+import os
 
 from sqlalchemy import select
 
@@ -8,9 +9,6 @@ from app.models.product import Product
 from app.models.service import Service
 from app.models.size import Size
 from app.models.user import User
-
-ADMIN_EMAIL = "admin@gratao.local"
-ADMIN_PASSWORD = "admin123"
 
 PRODUCTS = ["Blusa", "Casaco", "Calça", "Short", "Short saia"]
 SIZES = ["4", "6", "8", "10", "12", "14", "16", "PP", "P", "M", "G", "GG"]
@@ -33,19 +31,24 @@ SERVICE_TEXT_FIXES = {
 
 
 def seed() -> None:
+    admin_email, admin_password = _get_admin_credentials()
+
     db = SessionLocal()
     try:
         _fix_legacy_encoding(db)
 
-        admin = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
+        admin = db.scalar(select(User).where(User.email == admin_email))
         if admin is None:
             db.add(
                 User(
-                    email=ADMIN_EMAIL,
-                    password_hash=hash_password(ADMIN_PASSWORD),
+                    email=admin_email,
+                    password_hash=hash_password(admin_password),
                     is_admin=True,
                 )
             )
+        else:
+            admin.password_hash = hash_password(admin_password)
+            admin.is_admin = True
 
         for product_name in PRODUCTS:
             exists = db.scalar(select(Product).where(Product.name == product_name))
@@ -65,6 +68,25 @@ def seed() -> None:
         db.commit()
     finally:
         db.close()
+
+
+def _get_admin_credentials() -> tuple[str, str]:
+    admin_email = os.getenv("ADMIN_EMAIL")
+    admin_password = os.getenv("ADMIN_PASSWORD")
+    missing = [
+        name
+        for name, value in {
+            "ADMIN_EMAIL": admin_email,
+            "ADMIN_PASSWORD": admin_password,
+        }.items()
+        if not value
+    ]
+    if missing:
+        raise RuntimeError(
+            "Missing required admin seed environment variables: "
+            + ", ".join(missing)
+        )
+    return admin_email, admin_password
 
 
 def _fix_legacy_encoding(db) -> None:

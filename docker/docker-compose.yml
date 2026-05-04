@@ -22,7 +22,9 @@ services:
     container_name: gratao-flow-backend
     environment:
       DATABASE_URL: postgresql+psycopg://gratao:gratao@postgres:5432/gratao_flow
-      SECRET_KEY: local-dev-secret-key-change-me
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY before running docker compose}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?Set ADMIN_EMAIL before running docker compose}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD before running docker compose}
     ports:
       - "8000:8000"
     depends_on:
