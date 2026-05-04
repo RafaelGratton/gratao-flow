@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.enums import StockMovementType
 from app.models.stock import StockItem
@@ -21,7 +21,7 @@ from app.services.stock import (
     register_stock_movement,
 )
 
-router = APIRouter(dependencies=[Depends(get_current_admin)])
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 @router.post("/items", response_model=StockItemRead, status_code=201)

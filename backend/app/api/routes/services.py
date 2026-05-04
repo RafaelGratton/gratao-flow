@@ -4,13 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import case, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.service import Service
 from app.models.user import User
 from app.schemas.service import ServiceCreate, ServiceRead, ServiceUpdate
 
-router = APIRouter(dependencies=[Depends(get_current_admin)])
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 SERVICE_ORDER = [
     "Corte",
@@ -24,7 +24,7 @@ SERVICE_ORDER = [
 def create_service(
     payload: ServiceCreate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_current_user)],
 ) -> Service:
     service = Service(**payload.model_dump())
     db.add(service)

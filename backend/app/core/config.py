@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     project_name: str = "gratao-flow"
     product_name: str = "Gratão Flow"
     company_name: str = "Gratão Uniformes"
+    environment: str = "development"
+    cors_origins: str = ""
     database_url: str
     secret_key: str
     access_token_expire_minutes: int = 60 * 8

@@ -11,6 +11,7 @@ from app.api.routes import (
     services,
     sizes,
     stock,
+    users,
     weekly_closings,
     work_logs,
 )
@@ -27,6 +28,7 @@ api_router.include_router(employees.router, prefix="/employees", tags=["employee
 api_router.include_router(work_logs.router, prefix="/work-logs", tags=["work-logs"])
 api_router.include_router(orders.router, prefix="/orders", tags=["orders"])
 api_router.include_router(stock.router, prefix="/stock", tags=["stock"])
+api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(
     weekly_closings.router, prefix="/weekly-closings", tags=["weekly-closings"]
 )

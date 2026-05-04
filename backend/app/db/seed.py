@@ -31,7 +31,7 @@ SERVICE_TEXT_FIXES = {
 
 
 def seed() -> None:
-    admin_email, admin_password = _get_admin_credentials()
+    admin_email, admin_password, admin_name = _get_admin_credentials()
 
     db = SessionLocal()
     try:
@@ -42,12 +42,18 @@ def seed() -> None:
             db.add(
                 User(
                     email=admin_email,
+                    name=admin_name,
                     password_hash=hash_password(admin_password),
+                    role="admin",
+                    is_active=True,
                     is_admin=True,
                 )
             )
         else:
+            admin.name = admin_name
             admin.password_hash = hash_password(admin_password)
+            admin.role = "admin"
+            admin.is_active = True
             admin.is_admin = True
 
         for product_name in PRODUCTS:
@@ -70,9 +76,10 @@ def seed() -> None:
         db.close()
 
 
-def _get_admin_credentials() -> tuple[str, str]:
+def _get_admin_credentials() -> tuple[str, str, str]:
     admin_email = os.getenv("ADMIN_EMAIL")
     admin_password = os.getenv("ADMIN_PASSWORD")
+    admin_name = os.getenv("ADMIN_NAME") or "Administrador"
     missing = [
         name
         for name, value in {
@@ -86,7 +93,7 @@ def _get_admin_credentials() -> tuple[str, str]:
             "Missing required admin seed environment variables: "
             + ", ".join(missing)
         )
-    return admin_email, admin_password
+    return admin_email, admin_password, admin_name
 
 
 def _fix_legacy_encoding(db) -> None:

@@ -1,6 +1,8 @@
 import { clearToken, getToken } from "@/lib/auth";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ??
+  (process.env.NODE_ENV === "production" ? "" : "http://localhost:8000");
 
 type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
@@ -19,6 +21,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const apiUrl = getApiUrl();
   const token = getToken();
   const headers = new Headers(options.headers);
   headers.set("Accept", "application/json");
@@ -30,7 +33,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const response = await fetch(`${API_URL}${path}`, {
+  const response = await fetch(`${apiUrl}${path}`, {
     ...options,
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body)
@@ -56,6 +59,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 }
 
 async function downloadBlob(path: string): Promise<Blob> {
+  const apiUrl = getApiUrl();
   const token = getToken();
   const headers = new Headers();
   headers.set("Accept", "application/pdf");
@@ -64,7 +68,7 @@ async function downloadBlob(path: string): Promise<Blob> {
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const response = await fetch(`${API_URL}${path}`, { headers });
+  const response = await fetch(`${apiUrl}${path}`, { headers });
 
   if (response.status === 401) {
     clearToken();
@@ -79,6 +83,13 @@ async function downloadBlob(path: string): Promise<Blob> {
   }
 
   return response.blob();
+}
+
+function getApiUrl(): string {
+  if (!API_URL) {
+    throw new Error("NEXT_PUBLIC_API_URL must be defined in production.");
+  }
+  return API_URL;
 }
 
 async function readError(response: Response): Promise<string> {

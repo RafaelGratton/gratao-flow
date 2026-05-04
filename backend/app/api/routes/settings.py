@@ -3,12 +3,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.system_settings import SystemSettings
 from app.schemas.system_settings import SystemSettingsRead, SystemSettingsUpdate
 
-router = APIRouter(dependencies=[Depends(get_current_admin)])
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 SETTINGS_ID = 1
 

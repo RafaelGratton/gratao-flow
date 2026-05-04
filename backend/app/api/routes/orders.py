@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.client import Client
 from app.models.enums import (
@@ -53,7 +53,7 @@ from app.services.stock import (
     register_stock_movement,
 )
 
-router = APIRouter(dependencies=[Depends(get_current_admin)])
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 MONEY_QUANTIZER = Decimal("0.01")
 STATUS_ORDER = {
@@ -78,7 +78,7 @@ STATUS_ORDER = {
 def create_order(
     payload: OrderCreate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_current_user)],
 ) -> Order:
     services = _ensure_order_references_exist(db, payload)
 

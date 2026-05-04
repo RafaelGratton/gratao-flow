@@ -4,12 +4,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.product import Product
 from app.schemas.product import ProductRead
 
-router = APIRouter(dependencies=[Depends(get_current_admin)])
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 PRODUCT_ORDER = ["Blusa", "Casaco", "Calça", "Short", "Short saia"]
 

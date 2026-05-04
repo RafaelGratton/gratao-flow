@@ -6,14 +6,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.employee import Employee, EmployeeWorkLog
 from app.models.enums import EmployeePaymentStatus, WorkType
 from app.models.user import User
 from app.schemas.employee import EmployeeCreate, EmployeeRead, WorkLogCreate, WorkLogRead
 
-router = APIRouter(dependencies=[Depends(get_current_admin)])
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 MONEY_QUANTIZER = Decimal("0.01")
 
@@ -22,7 +22,7 @@ MONEY_QUANTIZER = Decimal("0.01")
 def create_employee(
     payload: EmployeeCreate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_current_user)],
 ) -> Employee:
     employee = Employee(**payload.model_dump())
     db.add(employee)

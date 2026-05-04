@@ -12,20 +12,22 @@ import {
   Settings,
   Stamp,
   Truck,
+  UserCog,
   Users
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
   { label: "Dashboard", href: "/dashboard", icon: Home },
-  { label: "Ordens de Serviço", href: "/orders", icon: ClipboardList },
   { label: "Clientes", href: "/clients", icon: Users },
+  { label: "Ordens de Serviço", href: "/orders", icon: ClipboardList },
   { label: "Produção", href: "/production", icon: Factory },
   { label: "Serigrafia", href: "/printing", icon: Stamp },
   { label: "Terceirização", href: "/outsourcing", icon: Truck },
   { label: "Estoque", href: "/stock", icon: Boxes },
   { label: "Financeiro", href: "/finance", icon: BadgeDollarSign },
   { label: "Funcionários", href: "/employees", icon: Users },
+  { label: "Usuários", href: "/users", icon: UserCog },
   { label: "Relatórios", href: "/reports", icon: BarChart3 },
   { label: "Configurações", href: "/settings", icon: Settings }
 ];

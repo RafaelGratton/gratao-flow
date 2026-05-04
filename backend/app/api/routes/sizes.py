@@ -4,12 +4,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.size import Size
 from app.schemas.size import SizeRead
 
-router = APIRouter(dependencies=[Depends(get_current_admin)])
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 SIZE_ORDER = ["4", "6", "8", "10", "12", "14", "16", "PP", "P", "M", "G", "GG"]
 

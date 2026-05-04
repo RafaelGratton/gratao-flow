@@ -5,9 +5,7 @@ services:
     environment:
       POSTGRES_DB: gratao_flow
       POSTGRES_USER: gratao
-      POSTGRES_PASSWORD: gratao
-    ports:
-      - "5432:5432"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,10 +19,14 @@ services:
       context: ../backend
     container_name: gratao-flow-backend
     environment:
-      DATABASE_URL: postgresql+psycopg://gratao:gratao@postgres:5432/gratao_flow
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      DATABASE_URL: postgresql+psycopg://gratao:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/gratao_flow
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY before running docker compose}
       ADMIN_EMAIL: ${ADMIN_EMAIL:?Set ADMIN_EMAIL before running docker compose}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD before running docker compose}
+      ADMIN_NAME: ${ADMIN_NAME:-Administrador}
+      PORT: ${PORT:-8000}
     ports:
       - "8000:8000"
     depends_on:
@@ -35,10 +37,10 @@ services:
     build:
       context: ../frontend
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     container_name: gratao-flow-frontend
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     ports:
       - "3000:3000"
     depends_on:

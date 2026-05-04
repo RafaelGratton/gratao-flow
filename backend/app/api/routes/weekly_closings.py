@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import Date, cast, func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.enums import PayoutStatus, WeeklyClosingStatus
 from app.models.order import Order, OrderPayment
@@ -15,7 +15,7 @@ from app.models.user import User
 from app.models.weekly_closing import WeeklyClosing
 from app.schemas.weekly_closing import WeeklyClosingCreate, WeeklyClosingRead
 
-router = APIRouter(dependencies=[Depends(get_current_admin)])
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 MONEY_QUANTIZER = Decimal("0.01")
 
@@ -24,7 +24,7 @@ MONEY_QUANTIZER = Decimal("0.01")
 def create_weekly_closing(
     payload: WeeklyClosingCreate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_current_user)],
 ) -> WeeklyClosing:
     _ensure_period_does_not_overlap(db, payload.start_date, payload.end_date)
 

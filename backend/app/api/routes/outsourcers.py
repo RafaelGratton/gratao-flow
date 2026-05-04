@@ -4,20 +4,20 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.outsourcing import Outsourcer
 from app.models.user import User
 from app.schemas.outsourcing import OutsourcerCreate, OutsourcerRead
 
-router = APIRouter(dependencies=[Depends(get_current_admin)])
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 @router.post("", response_model=OutsourcerRead, status_code=201)
 def create_outsourcer(
     payload: OutsourcerCreate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_current_user)],
 ) -> Outsourcer:
     outsourcer = Outsourcer(**payload.model_dump())
     db.add(outsourcer)

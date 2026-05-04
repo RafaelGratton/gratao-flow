@@ -4,20 +4,20 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.client import Client
 from app.models.user import User
 from app.schemas.client import ClientCreate, ClientRead, ClientUpdate
 
-router = APIRouter(dependencies=[Depends(get_current_admin)])
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 @router.post("", response_model=ClientRead, status_code=201)
 def create_client(
     payload: ClientCreate,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(get_current_admin)],
+    _: Annotated[User, Depends(get_current_user)],
 ) -> Client:
     client = Client(**payload.model_dump())
     db.add(client)
