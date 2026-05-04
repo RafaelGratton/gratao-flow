@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: #f7f3ec;
+}
+
+body {
+  min-height: 100%;
+  margin: 0;
+  color: #1f2933;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(201, 151, 43, 0.13), transparent 30rem),
+    linear-gradient(135deg, #fffdf8 0%, #f7f3ec 52%, #efe7d9 100%);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+button,
+input {
+  font: inherit;
+}
+
+::selection {
+  color: #111111;
+  background: #f5e8c6;
+}
+
+.focus-ring {
+  @apply outline-none ring-2 ring-accent/35 ring-offset-2 ring-offset-canvas;
+}

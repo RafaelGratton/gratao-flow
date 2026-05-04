@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gratao-flow-postgres
+    environment:
+      POSTGRES_DB: gratao_flow
+      POSTGRES_USER: gratao
+      POSTGRES_PASSWORD: gratao
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gratao -d gratao_flow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ../backend
+    container_name: gratao-flow-backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://gratao:gratao@postgres:5432/gratao_flow
+      SECRET_KEY: local-dev-secret-key-change-me
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    container_name: gratao-flow-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

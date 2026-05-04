@@ -1,0 +1,8 @@
+.env
+node_modules
+.next
+**pycache**
+*.db
+*.sqlite
+*.log
+.git_broken_backup/
