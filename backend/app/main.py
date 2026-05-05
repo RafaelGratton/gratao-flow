@@ -1,3 +1,5 @@
+import json
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -7,23 +9,41 @@ from app.core.config import get_settings
 settings = get_settings()
 is_production = settings.environment.lower() == "production"
 
+DEFAULT_CORS_ORIGINS = [
+    "https://gratao-flow-frontend.onrender.com",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
 
-def get_cors_origins() -> list[str]:
-    cors_origins = settings.cors_origins.strip().removeprefix("[").removesuffix("]")
-    configured_origins = [
-        origin.strip()
-        for origin in cors_origins.split(",")
-        if origin.strip() and origin.strip() != "*"
+
+def parse_cors_origins(raw: str | None) -> list[str]:
+    if not raw:
+        return DEFAULT_CORS_ORIGINS
+
+    raw = raw.strip()
+    if not raw:
+        return DEFAULT_CORS_ORIGINS
+
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            values = parsed
+        elif isinstance(parsed, str):
+            values = parsed.split(",")
+        else:
+            values = []
+    except json.JSONDecodeError:
+        values = raw.split(",")
+
+    origins = [
+        item.strip()
+        for item in values
+        if isinstance(item, str) and item.strip()
     ]
 
-    if is_production:
-        return configured_origins
+    origins = [origin for origin in origins if origin != "*"]
 
-    development_origins = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ]
-    return list(dict.fromkeys([*development_origins, *configured_origins]))
+    return list(dict.fromkeys([*DEFAULT_CORS_ORIGINS, *origins]))
 
 
 app = FastAPI(
@@ -35,9 +55,11 @@ app = FastAPI(
     openapi_url=None if is_production else "/openapi.json",
 )
 
+origins = parse_cors_origins(getattr(settings, "cors_origins", None)) or DEFAULT_CORS_ORIGINS
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_cors_origins(),
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
