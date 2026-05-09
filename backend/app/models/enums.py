@@ -24,6 +24,13 @@ class FinancialStatus(StrEnum):
     PAID = "paid"
 
 
+class DeliveryStatus(StrEnum):
+    PENDING = "pending"
+    READY = "ready"
+    PARTIALLY_DELIVERED = "partially_delivered"
+    DELIVERED = "delivered"
+
+
 class PaymentMethod(StrEnum):
     PIX = "pix"
     CASH = "cash"

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.models.enums import (
+    DeliveryStatus,
     FinancialStatus,
     PaymentMethod,
     PrintType,
@@ -140,6 +141,17 @@ class OrderItem(Base):
     quantity_cut: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     quantity_printed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     quantity_sewn: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    quantity_delivered: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivery_status: Mapped[DeliveryStatus] = mapped_column(
+        Enum(
+            DeliveryStatus,
+            name="delivery_status",
+            values_callable=lambda enum_class: [item.value for item in enum_class],
+        ),
+        default=DeliveryStatus.PENDING,
+        nullable=False,
+    )
     sewing_mode: Mapped[SewingMode | None] = mapped_column(
         Enum(
             SewingMode,
@@ -167,6 +179,37 @@ class OrderItem(Base):
         back_populates="order_item",
         order_by="ProductionEvent.id",
     )
+    delivery_history = relationship(
+        "DeliveryHistory",
+        back_populates="order_item",
+        cascade="all, delete-orphan",
+        order_by="DeliveryHistory.id",
+    )
+    outsourcings = relationship(
+        "OrderOutsourcing",
+        back_populates="order_item",
+        order_by="OrderOutsourcing.id",
+    )
+
+
+class DeliveryHistory(Base):
+    __tablename__ = "delivery_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), nullable=False)
+    order_item_id: Mapped[int] = mapped_column(ForeignKey("order_items.id"), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    responsible: Mapped[str] = mapped_column(String(255), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    delivered_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    order_item = relationship("OrderItem", back_populates="delivery_history")
+    order = relationship("Order")
 
 
 class OrderItemService(Base):

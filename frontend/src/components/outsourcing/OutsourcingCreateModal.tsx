@@ -2,7 +2,7 @@
 
 import { X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { OrderDetails, Outsourcer } from "@/components/orders/types";
+import type { OrderDetails, OrderItem, Outsourcer } from "@/components/orders/types";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { api } from "@/lib/api";
@@ -10,6 +10,7 @@ import { formatCurrency } from "@/lib/format";
 
 type Props = {
   order: OrderDetails | null;
+  item: OrderItem | null;
   availableQuantity: number;
   outsourcers: Outsourcer[];
   open: boolean;
@@ -20,6 +21,7 @@ type Props = {
 
 export function OutsourcingCreateModal({
   order,
+  item,
   availableQuantity,
   outsourcers,
   open,
@@ -44,7 +46,7 @@ export function OutsourcingCreateModal({
       setNotes("");
       setError(null);
     }
-  }, [open, order?.id]);
+  }, [open, order?.id, item?.id]);
 
   const totals = useMemo(() => {
     const quantity = Number(quantitySent);
@@ -69,14 +71,15 @@ export function OutsourcingCreateModal({
     return null;
   }, [availableQuantity, customerUnitPrice, outsourcerUnitPrice, quantitySent]);
 
-  if (!open || !order) return null;
+  if (!open || !order || !item) return null;
 
   async function submit() {
-    if (!order || validation) return;
+    if (!order || !item || validation) return;
     setLoading(true);
     setError(null);
     try {
       const updated = await api.post<OrderDetails>(`/orders/${order.id}/outsourcing`, {
+        order_item_id: item.id,
         outsourcer_id: outsourcerId ? Number(outsourcerId) : null,
         quantity_sent: Number(quantitySent),
         customer_unit_price: customerUnitPrice,
@@ -101,6 +104,7 @@ export function OutsourcingCreateModal({
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-accent-dark">OS #{order.id}</p>
             <h2 className="text-lg font-black text-ink">Enviar para terceirização</h2>
+            <p className="mt-1 text-sm font-semibold text-muted">{item.product.name} / {item.size.label} / {item.color}</p>
           </div>
           <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-md text-muted transition hover:bg-[#FCFAF6] hover:text-ink">
             <X size={18} />

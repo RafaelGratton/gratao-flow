@@ -39,6 +39,7 @@ class OutsourcerRead(BaseModel):
 
 
 class OutsourcingCreate(BaseModel):
+    order_item_id: int = Field(gt=0)
     outsourcer_id: int | None = None
     quantity_sent: int = Field(gt=0)
     customer_unit_price: MoneyDecimal
@@ -69,6 +70,7 @@ class OutsourcingPayout(BaseModel):
 
 class OrderOutsourcingRead(BaseModel):
     id: int
+    order_item_id: int | None
     outsourcer_id: int | None
     outsourcer: OutsourcerRead | None
     quantity_sent: int

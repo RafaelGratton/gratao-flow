@@ -28,6 +28,9 @@ class OrderOutsourcing(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), nullable=False)
+    order_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("order_items.id"), nullable=True
+    )
     outsourcer_id: Mapped[int | None] = mapped_column(
         ForeignKey("outsourcers.id"), nullable=True
     )
@@ -68,4 +71,5 @@ class OrderOutsourcing(Base):
     )
 
     order = relationship("Order", back_populates="outsourcings")
+    order_item = relationship("OrderItem", back_populates="outsourcings")
     outsourcer = relationship("Outsourcer", back_populates="order_outsourcings")

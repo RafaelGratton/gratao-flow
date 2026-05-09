@@ -2,8 +2,8 @@
 
 import { BadgeDollarSign, HandCoins, PackageCheck, Truck } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { OrderDetails, OrderOutsourcing, OrderSummary, Outsourcer } from "@/components/orders/types";
-import { OutsourcingAvailableOrders } from "@/components/outsourcing/OutsourcingAvailableOrders";
+import type { OrderDetails, OrderItem, OrderOutsourcing, OrderSummary, Outsourcer } from "@/components/orders/types";
+import { OutsourcingAvailableOrders, type AvailableOutsourcingItem } from "@/components/outsourcing/OutsourcingAvailableOrders";
 import { OutsourcingCreateModal } from "@/components/outsourcing/OutsourcingCreateModal";
 import { OutsourcingList } from "@/components/outsourcing/OutsourcingList";
 import { OutsourcingReturnModal } from "@/components/outsourcing/OutsourcingReturnModal";
@@ -19,19 +19,15 @@ type ReturnTarget = {
   outsourcing: OrderOutsourcing;
 };
 
-function availableQuantity(order: OrderDetails) {
-  const base = order.items.reduce((total, item) => {
-    if (!itemReadyForOutsourcing(item)) return total;
-    if (itemHasService(item, "serigrafia")) {
-      return total + Math.min(item.quantity_printed, item.quantity_requested);
-    }
-    if (itemHasService(item, "corte")) {
-      return total + Math.min(item.quantity_cut, item.quantity_requested);
-    }
-    return total + item.quantity_requested;
-  }, 0);
+function availableQuantityForItem(order: OrderDetails, item: OrderItem) {
+  const base = itemHasService(item, "serigrafia")
+    ? Math.min(item.quantity_printed, item.quantity_requested)
+    : Math.min(item.quantity_cut, item.quantity_requested);
   const alreadyOutsourced = order.outsourcings
-    .filter((outsourcing) => outsourcing.status !== "cancelled")
+    .filter(
+      (outsourcing) =>
+        outsourcing.order_item_id === item.id && outsourcing.status !== "cancelled"
+    )
     .reduce((total, outsourcing) => total + outsourcing.quantity_sent, 0);
   return Math.max(base - alreadyOutsourced, 0);
 }
@@ -42,7 +38,7 @@ export function OutsourcingPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [sendOrder, setSendOrder] = useState<OrderDetails | null>(null);
+  const [sendTarget, setSendTarget] = useState<AvailableOutsourcingItem | null>(null);
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
   const [returnTarget, setReturnTarget] = useState<ReturnTarget | null>(null);
 
@@ -77,13 +73,19 @@ export function OutsourcingPanel() {
     void loadData();
   }, [loadData]);
 
-  const availableOrders = useMemo(
+  const availableItems = useMemo(
     () =>
-      orders.filter(
-        (order) =>
-          ["cut_done", "print_done"].includes(order.production_status) &&
-          order.items.some(itemReadyForOutsourcing) &&
-          !["delivered", "cancelled"].includes(order.production_status)
+      orders.flatMap((order) =>
+        ["delivered", "cancelled"].includes(order.production_status)
+          ? []
+          : order.items
+              .filter(itemReadyForOutsourcing)
+              .map((item) => ({
+                order,
+                item,
+                availableQuantity: availableQuantityForItem(order, item)
+              }))
+              .filter((target) => target.availableQuantity > 0)
       ),
     [orders]
   );
@@ -136,7 +138,7 @@ export function OutsourcingPanel() {
 
       <div className="grid gap-4 md:grid-cols-4">
         {[
-          { label: "OS disponiveis", value: availableOrders.length, icon: Truck, money: false },
+          { label: "Itens disponiveis", value: availableItems.length, icon: Truck, money: false },
           { label: "Cobrado", value: financialSummary.customer, icon: BadgeDollarSign, money: true },
           { label: "Repasse", value: financialSummary.payout, icon: HandCoins, money: true },
           { label: "Lucro", value: financialSummary.profit, icon: PackageCheck, money: true }
@@ -156,10 +158,9 @@ export function OutsourcingPanel() {
       </div>
 
       <OutsourcingAvailableOrders
-        orders={availableOrders}
-        availableQuantity={availableQuantity}
+        items={availableItems}
         loading={loading}
-        onSend={setSendOrder}
+        onSend={setSendTarget}
       />
       <OutsourcingList
         items={outsourcingItems}
@@ -170,11 +171,12 @@ export function OutsourcingPanel() {
       />
 
       <OutsourcingCreateModal
-        open={Boolean(sendOrder)}
-        order={sendOrder}
-        availableQuantity={sendOrder ? availableQuantity(sendOrder) : 0}
+        open={Boolean(sendTarget)}
+        order={sendTarget?.order ?? null}
+        item={sendTarget?.item ?? null}
+        availableQuantity={sendTarget?.availableQuantity ?? 0}
         outsourcers={outsourcers}
-        onClose={() => setSendOrder(null)}
+        onClose={() => setSendTarget(null)}
         onCreated={(order) => replaceOrder(order, `Terceirização criada para a OS #${order.id}.`)}
         onQuickCreate={() => setQuickCreateOpen(true)}
       />

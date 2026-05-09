@@ -55,6 +55,7 @@ export function OutsourcingList({ items, loading, onReturn, onPaid, onError }: P
         ) : (
           <div className="grid gap-4">
             {items.map(({ order, outsourcing }) => {
+              const item = order.items.find((orderItem) => orderItem.id === outsourcing.order_item_id);
               const canReturn =
                 outsourcing.return_expected &&
                 !["returned", "cancelled"].includes(outsourcing.status);
@@ -75,7 +76,10 @@ export function OutsourcingList({ items, loading, onReturn, onPaid, onError }: P
                         {order.client.name} / {outsourcing.outsourcer?.name ?? "Sem terceirizado definido"}
                       </p>
                       <p className="mt-2 text-sm text-muted">
-                        <span className="font-bold text-ink">{order.product.name}</span> / enviado {outsourcing.quantity_sent} / retornado {outsourcing.quantity_returned}
+                        <span className="font-bold text-ink">{item?.product.name ?? order.product.name}</span>
+                        {" / "}
+                        {item ? `${item.size.label} / ${item.color} / ` : ""}
+                        enviado {outsourcing.quantity_sent} / retornado {outsourcing.quantity_returned}
                       </p>
                     </div>
                     <p className="text-xs font-semibold text-muted">Enviado em {formatDateTime(outsourcing.sent_at)}</p>

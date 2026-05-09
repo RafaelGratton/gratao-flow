@@ -57,6 +57,7 @@ from app.services.reports import (
     generate_client_order_report_pdf,
     generate_internal_order_report_pdf,
 )
+from app.services.deliveries import sync_item_delivery_status, sync_order_items_delivery_status
 from app.services.stock import (
     get_or_create_piece_stock_item_for_order,
     register_stock_movement,
@@ -165,6 +166,7 @@ def list_orders(db: Annotated[Session, Depends(get_db)]) -> list[Order]:
             selectinload(Order.size),
             selectinload(Order.items).selectinload(OrderItem.product),
             selectinload(Order.items).selectinload(OrderItem.size),
+            selectinload(Order.items).selectinload(OrderItem.delivery_history),
             selectinload(Order.items)
             .selectinload(OrderItem.services)
             .selectinload(OrderItemService.service),
@@ -411,6 +413,7 @@ def register_item_cut(
         )
     )
     _sync_order_production_snapshot(db, order, payload.quantity)
+    sync_order_items_delivery_status(order)
 
     db.commit()
     return _get_order_or_404(db, order.id)
@@ -444,6 +447,7 @@ def register_item_print(
         )
     )
     _sync_order_production_snapshot(db, order, payload.quantity)
+    sync_order_items_delivery_status(order)
 
     db.commit()
     return _get_order_or_404(db, order.id)
@@ -476,6 +480,7 @@ def register_item_sewing(
         )
     )
     _sync_order_production_snapshot(db, order, payload.quantity)
+    sync_order_items_delivery_status(order)
 
     db.commit()
     return _get_order_or_404(db, order.id)
@@ -489,7 +494,7 @@ def create_order_outsourcing(
 ) -> Order:
     order = _get_order_or_404(db, order_id)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
-    _validate_outsourcing_stage(order)
+    item = _validate_outsourcing_item(order, payload.order_item_id)
     _validate_outsourcer_exists(db, payload.outsourcer_id)
     if payload.direct_to_customer:
         raise HTTPException(
@@ -497,7 +502,7 @@ def create_order_outsourcing(
             detail="Terceirizacao sempre retorna para a Gratao antes da entrega ao cliente.",
         )
 
-    available_quantity = _available_outsourcing_quantity(order)
+    available_quantity = _available_outsourcing_quantity_for_item(order, item)
     if payload.quantity_sent > available_quantity:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -513,6 +518,7 @@ def create_order_outsourcing(
     outsourcing_status = OutsourcingStatus.SENT
     outsourcing = OrderOutsourcing(
         order_id=order.id,
+        order_item_id=item.id,
         outsourcer_id=payload.outsourcer_id,
         quantity_sent=payload.quantity_sent,
         quantity_returned=0,
@@ -531,6 +537,7 @@ def create_order_outsourcing(
     db.add(
         ProductionEvent(
             order_id=order.id,
+            order_item_id=item.id,
             event_type=ProductionEventType.OUTSOURCING_SENT,
             quantity=payload.quantity_sent,
             notes=payload.notes,
@@ -600,6 +607,7 @@ def register_outsourcing_return(
     db.add(
         ProductionEvent(
             order_id=order.id,
+            order_item_id=outsourcing.order_item_id,
             event_type=ProductionEventType.OUTSOURCING_RETURNED,
             quantity=payload.quantity_returned,
             notes=payload.notes,
@@ -607,8 +615,9 @@ def register_outsourcing_return(
     )
 
     if outsourcing.status == OutsourcingStatus.RETURNED:
-        _change_status(db, order, ProductionStatus.RETURNED, payload.quantity_returned)
-        _change_status(db, order, ProductionStatus.READY, payload.quantity_returned)
+        if outsourcing.order_item is not None:
+            sync_item_delivery_status(outsourcing.order_item, order)
+        _sync_order_production_snapshot(db, order, payload.quantity_returned)
 
     db.commit()
     return _get_order_or_404(db, order.id)
@@ -944,6 +953,31 @@ def _validate_outsourcing_stage(order: Order) -> None:
         )
 
 
+def _validate_outsourcing_item(order: Order, order_item_id: int) -> OrderItem:
+    item = _get_order_item_or_404(order, order_item_id)
+    if item.sewing_mode != SewingMode.OUTSOURCED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este item nao esta configurado para terceirizacao.",
+        )
+    if item.quantity_cut < item.quantity_requested:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nao e possivel terceirizar antes de concluir o corte do item.",
+        )
+    if _item_has_printing(item) and item.quantity_printed < item.quantity_requested:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nao e possivel terceirizar antes de concluir a serigrafia do item.",
+        )
+    if _available_outsourcing_quantity_for_item(order, item) <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este item nao possui saldo para terceirizacao.",
+        )
+    return item
+
+
 def _validate_outsourcer_exists(db: Session, outsourcer_id: int | None) -> None:
     if outsourcer_id is not None and db.get(Outsourcer, outsourcer_id) is None:
         raise HTTPException(
@@ -966,6 +1000,17 @@ def _available_outsourcing_quantity(order: Order) -> int:
     return max(max_quantity - already_outsourced, 0)
 
 
+def _available_outsourcing_quantity_for_item(order: Order, item: OrderItem) -> int:
+    max_quantity = _available_item_outsourcing_quantity(item)
+    already_outsourced = sum(
+        outsourcing.quantity_sent
+        for outsourcing in order.outsourcings
+        if outsourcing.order_item_id == item.id
+        and outsourcing.status != OutsourcingStatus.CANCELLED
+    )
+    return max(max_quantity - already_outsourced, 0)
+
+
 def _ensure_order_exists(db: Session, order_id: int) -> None:
     if db.get(Order, order_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -982,7 +1027,10 @@ def _get_order_outsourcing_or_404(
             OrderOutsourcing.id == outsourcing_id,
             OrderOutsourcing.order_id == order_id,
         )
-        .options(selectinload(OrderOutsourcing.outsourcer))
+        .options(
+            selectinload(OrderOutsourcing.outsourcer),
+            selectinload(OrderOutsourcing.order_item),
+        )
     )
     outsourcing = db.scalar(query)
     if outsourcing is None:
@@ -1044,7 +1092,7 @@ def _sync_order_production_snapshot(
 def _derive_order_status_from_items(order: Order) -> ProductionStatus:
     if not order.items:
         return order.production_status
-    if all(_item_is_complete(item) for item in order.items):
+    if all(_item_is_complete(item, order) for item in order.items):
         return ProductionStatus.READY
     if any(item.quantity_sewn > 0 for item in order.items):
         return ProductionStatus.IN_SEWING
@@ -1061,9 +1109,9 @@ def _derive_order_status_from_items(order: Order) -> ProductionStatus:
     return ProductionStatus.CREATED
 
 
-def _item_is_complete(item: OrderItem) -> bool:
+def _item_is_complete(item: OrderItem, order: Order) -> bool:
     if item.sewing_mode == SewingMode.OUTSOURCED:
-        return False
+        return _outsourced_item_is_complete(item, order)
     if _item_has_sewing(item):
         return item.quantity_sewn >= item.quantity_requested
     if _item_has_printing(item):
@@ -1076,11 +1124,26 @@ def _item_is_complete(item: OrderItem) -> bool:
 def _item_is_ready_for_outsourcing(item: OrderItem) -> bool:
     if item.sewing_mode != SewingMode.OUTSOURCED:
         return False
-    if _item_has_cut(item) and item.quantity_cut < item.quantity_requested:
+    if item.quantity_cut < item.quantity_requested:
         return False
     if _item_has_printing(item) and item.quantity_printed < item.quantity_requested:
         return False
     return True
+
+
+def _outsourced_item_is_complete(item: OrderItem, order: Order) -> bool:
+    active_outsourcings = [
+        outsourcing
+        for outsourcing in order.outsourcings
+        if outsourcing.order_item_id == item.id
+        and outsourcing.status != OutsourcingStatus.CANCELLED
+    ]
+    if not active_outsourcings:
+        return False
+    returned_quantity = sum(outsourcing.quantity_returned for outsourcing in active_outsourcings)
+    return returned_quantity >= item.quantity_requested and all(
+        outsourcing.status == OutsourcingStatus.RETURNED for outsourcing in active_outsourcings
+    )
 
 
 def _available_item_outsourcing_quantity(item: OrderItem) -> int:

@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: gratao_flow
       POSTGRES_USER: gratao
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: senha_postgres_local_123
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,7 +21,7 @@ services:
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-development}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
-      DATABASE_URL: postgresql+psycopg://gratao:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/gratao_flow
+      DATABASE_URL: postgresql+psycopg://gratao:senha_postgres_local_123@postgres:5432/gratao_flow
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY before running docker compose}
       ADMIN_EMAIL: ${ADMIN_EMAIL:?Set ADMIN_EMAIL before running docker compose}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD before running docker compose}

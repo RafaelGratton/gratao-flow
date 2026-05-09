@@ -16,6 +16,8 @@ export type ProductionStatus =
 
 export type FinancialStatus = "pending" | "partial" | "paid";
 
+export type DeliveryStatus = "pending" | "ready" | "partially_delivered" | "delivered";
+
 export type SewingMode = "internal" | "outsourced";
 
 export type OutsourcingStatus =
@@ -63,6 +65,9 @@ export type OrderItem = {
   quantity_cut: number;
   quantity_printed: number;
   quantity_sewn: number;
+  quantity_delivered: number;
+  delivered_at: string | null;
+  delivery_status: DeliveryStatus;
   sewing_mode: SewingMode | null;
   notes: string | null;
   created_at: string;
@@ -128,6 +133,7 @@ export type Outsourcer = {
 
 export type OrderOutsourcing = {
   id: number;
+  order_item_id: number | null;
   outsourcer_id: number | null;
   outsourcer: Outsourcer | null;
   quantity_sent: number;

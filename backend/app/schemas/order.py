@@ -5,6 +5,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 from app.models.enums import (
+    DeliveryStatus,
     FinancialStatus,
     PaymentMethod,
     PrintType,
@@ -137,6 +138,9 @@ class OrderItemRead(BaseModel):
     quantity_cut: int
     quantity_printed: int
     quantity_sewn: int
+    quantity_delivered: int
+    delivered_at: datetime | None
+    delivery_status: DeliveryStatus
     sewing_mode: SewingMode | None
     notes: str | None
     services: list[OrderItemServiceRead]

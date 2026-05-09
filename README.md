@@ -14,7 +14,7 @@ SECRET_KEY=change_me_generate_a_strong_random_secret
 ADMIN_EMAIL=admin@gratao.local
 ADMIN_PASSWORD=change_me_strong_password
 ADMIN_NAME=Administrador
-POSTGRES_PASSWORD=change_me_strong_database_password
+POSTGRES_PASSWORD=senha_postgres_local_123
 CORS_ORIGINS=http://localhost:3000
 ```
 
@@ -23,6 +23,13 @@ docker compose -f docker/docker-compose.yml up --build -d
 ```
 
 O backend executa as migrations e o seed base automaticamente ao iniciar. A API usa `SECRET_KEY` para assinar JWTs, e o seed cria o admin inicial usando `ADMIN_EMAIL` e `ADMIN_PASSWORD`; se alguma dessas variaveis nao estiver definida, a inicializacao falha claramente.
+
+O Docker Compose local usa a senha fixa `senha_postgres_local_123` para o usuario `gratao`. Se houver erro de autenticacao por volume antigo, resete apenas o banco local de desenvolvimento:
+
+```powershell
+docker compose -f docker\docker-compose.yml down -v
+docker compose -f docker\docker-compose.yml up --build -d
+```
 
 ## 🔐 Configuração de Produção
 
