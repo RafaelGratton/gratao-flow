@@ -1,19 +1,19 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, Check, Loader2 } from "lucide-react";
+import { ArrowLeft, Check, Loader2, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { SelectHTMLAttributes } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { Controller, type Resolver, useForm } from "react-hook-form";
+import { Controller, type Resolver, useFieldArray, useForm } from "react-hook-form";
 import { z } from "zod";
 import { ClientSelect } from "@/components/clients/ClientSelect";
 import type { Client } from "@/components/clients/types";
+import type { CatalogItem, OrderDetails } from "@/components/orders/types";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
-import type { CatalogItem, OrderDetails } from "@/components/orders/types";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -30,8 +30,7 @@ const requiredSelectNumber = (message: string) =>
       .positive(message)
   );
 
-const schema = z.object({
-  client_id: requiredSelectNumber("Selecione um cliente"),
+const itemSchema = z.object({
   product_id: requiredSelectNumber("Selecione um produto"),
   size_id: requiredSelectNumber("Selecione um tamanho"),
   color: z
@@ -39,23 +38,29 @@ const schema = z.object({
     .optional()
     .transform((value) => value?.trim() ?? ""),
   quantity_requested: z.coerce.number().int().positive("Informe uma quantidade valida."),
-  lot: z.string().min(1, "Informe o lote."),
   service_ids: z
     .array(z.coerce.number().int().positive())
-    .min(1, "Selecione pelo menos um serviço."),
+    .min(1, "Selecione pelo menos um servico."),
+  notes: z.string().optional()
+});
+
+const schema = z.object({
+  client_id: requiredSelectNumber("Selecione um cliente"),
+  items: z.array(itemSchema).min(1, "Adicione pelo menos um item."),
   allow_printing_exception: z.boolean().default(false),
   notes: z.string().optional()
 });
 
-type FormValues = z.output<typeof schema>;
 type FormInput = {
   client_id: string;
-  product_id: string;
-  size_id: string;
-  color: string;
-  quantity_requested: number;
-  lot: string;
-  service_ids: number[];
+  items: Array<{
+    product_id: string;
+    size_id: string;
+    color: string;
+    quantity_requested: number;
+    service_ids: number[];
+    notes: string;
+  }>;
   allow_printing_exception: boolean;
   notes: string;
 };
@@ -73,6 +78,15 @@ const initialData: CatalogData = {
   sizes: [],
   services: []
 };
+
+const emptyItem = () => ({
+  product_id: "",
+  size_id: "",
+  color: "",
+  quantity_requested: 1,
+  service_ids: [],
+  notes: ""
+});
 
 export function OrderForm() {
   const router = useRouter();
@@ -92,19 +106,18 @@ export function OrderForm() {
     resolver: zodResolver(schema) as Resolver<FormInput>,
     defaultValues: {
       client_id: "",
-      product_id: "",
-      size_id: "",
-      color: "",
-      quantity_requested: 1,
-      lot: "",
-      service_ids: [],
+      items: [emptyItem()],
       allow_printing_exception: false,
       notes: ""
     }
   });
 
-  const selectedServices = watch("service_ids") ?? [];
-  const quantity = watch("quantity_requested");
+  const { fields, append, remove } = useFieldArray({
+    control,
+    name: "items"
+  });
+
+  const watchedItems = watch("items") ?? [];
 
   useEffect(() => {
     let active = true;
@@ -151,10 +164,17 @@ export function OrderForm() {
   }, []);
 
   const estimatedTotal = useMemo(() => {
-    return catalogs.services
-      .filter((service) => selectedServices.includes(service.id))
-      .reduce((total, service) => total + Number(service.price_per_unit ?? 0) * Number(quantity || 0), 0);
-  }, [catalogs.services, quantity, selectedServices]);
+    return watchedItems.reduce((orderTotal, item) => {
+      const quantity = Number(item.quantity_requested || 0);
+      const itemTotal = catalogs.services
+        .filter((service) => item.service_ids.includes(service.id))
+        .reduce(
+          (total, service) => total + Number(service.price_per_unit ?? 0) * quantity,
+          0
+        );
+      return orderTotal + itemTotal;
+    }, 0);
+  }, [catalogs.services, watchedItems]);
 
   async function onSubmit(rawValues: FormInput) {
     setSubmitError(null);
@@ -164,23 +184,19 @@ export function OrderForm() {
       return;
     }
 
-    const serviceIds = values.service_ids.map(Number);
-    if (serviceIds.some((serviceId) => !Number.isFinite(serviceId))) {
-      setSubmitError("Selecione serviços válidos.");
-      return;
-    }
-
     try {
       const order = await api.post<OrderDetails>("/orders", {
         client_id: values.client_id,
-        product_id: values.product_id,
-        size_id: values.size_id,
-        color: values.color,
-        quantity_requested: values.quantity_requested,
         allow_printing_exception: values.allow_printing_exception,
-        lot: values.lot,
         notes: values.notes?.trim() ? values.notes : null,
-        service_ids: serviceIds
+        items: values.items.map((item) => ({
+          product_id: item.product_id,
+          size_id: item.size_id,
+          color: item.color,
+          quantity_requested: item.quantity_requested,
+          notes: item.notes?.trim() ? item.notes : null,
+          service_ids: item.service_ids.map(Number)
+        }))
       });
       router.push(`/orders/${order.id}`);
     } catch (requestError) {
@@ -190,11 +206,13 @@ export function OrderForm() {
     }
   }
 
-  function toggleService(serviceId: number) {
+  function toggleService(itemIndex: number, serviceId: number) {
+    const fieldName = `items.${itemIndex}.service_ids` as const;
+    const selectedServices = watch(fieldName) ?? [];
     const next = selectedServices.includes(serviceId)
       ? selectedServices.filter((id) => id !== serviceId)
       : [...selectedServices, serviceId];
-    setValue("service_ids", next, { shouldDirty: true, shouldValidate: true });
+    setValue(fieldName, next, { shouldDirty: true, shouldValidate: true });
   }
 
   function handleClientCreated(client: Client) {
@@ -243,7 +261,6 @@ export function OrderForm() {
       <Card>
         <CardHeader>
           <h2 className="text-lg font-black text-ink">Dados da OS</h2>
-          <p className="mt-1 text-sm text-muted">Uma OS deve conter apenas um produto.</p>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -252,7 +269,7 @@ export function OrderForm() {
               Carregando catalogos...
             </div>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2">
               <Controller
                 control={control}
                 name="client_id"
@@ -268,95 +285,149 @@ export function OrderForm() {
                   />
                 )}
               />
-              <Controller
-                control={control}
-                name="product_id"
-                render={({ field }) => (
-                  <SelectField
-                    label="Produto"
-                    name={field.name}
-                    value={String(field.value ?? "")}
-                    onBlur={field.onBlur}
-                    onChange={(event) => field.onChange(event.target.value)}
-                    error={errors.product_id?.message}
-                  >
-                    <option value="">Selecione...</option>
-                    {catalogs.products.map((product) => (
-                      <option key={product.id} value={product.id}>
-                        {product.name}
-                      </option>
-                    ))}
-                  </SelectField>
-                )}
-              />
-              <Controller
-                control={control}
-                name="size_id"
-                render={({ field }) => (
-                  <SelectField
-                    label="Tamanho"
-                    name={field.name}
-                    value={String(field.value ?? "")}
-                    onBlur={field.onBlur}
-                    onChange={(event) => field.onChange(event.target.value)}
-                    error={errors.size_id?.message}
-                  >
-                    <option value="">Selecione...</option>
-                    {catalogs.sizes.map((size) => (
-                      <option key={size.id} value={size.id}>
-                        {size.label}
-                      </option>
-                    ))}
-                  </SelectField>
-                )}
-              />
-              <Input label="Cor" error={errors.color?.message} placeholder="Ex: Azul marinho" {...register("color")} />
               <Input
-                label="Quantidade"
-                type="number"
-                min={1}
-                error={errors.quantity_requested?.message}
-                {...register("quantity_requested")}
+                label="Observacoes gerais"
+                error={errors.notes?.message}
+                placeholder="Opcional"
+                {...register("notes")}
               />
-              <Input label="Lote" error={errors.lot?.message} placeholder="Ex: MAI-001" {...register("lot")} />
             </div>
           )}
         </CardContent>
       </Card>
 
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-black text-ink">Itens</h2>
+          <Button type="button" variant="secondary" onClick={() => append(emptyItem())}>
+            <Plus size={18} />
+            Adicionar item
+          </Button>
+        </div>
+
+        {fields.map((field, index) => {
+          const selectedServices = watchedItems[index]?.service_ids ?? [];
+          const itemErrors = errors.items?.[index];
+          return (
+            <Card key={field.id}>
+              <CardHeader>
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-base font-black text-ink">Item {index + 1}</h3>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="text-danger hover:text-danger"
+                    onClick={() => remove(index)}
+                    disabled={fields.length === 1}
+                  >
+                    <Trash2 size={18} />
+                    Remover
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <Controller
+                    control={control}
+                    name={`items.${index}.product_id`}
+                    render={({ field: productField }) => (
+                      <SelectField
+                        label="Produto"
+                        name={productField.name}
+                        value={String(productField.value ?? "")}
+                        onBlur={productField.onBlur}
+                        onChange={(event) => productField.onChange(event.target.value)}
+                        error={itemErrors?.product_id?.message}
+                      >
+                        <option value="">Selecione...</option>
+                        {catalogs.products.map((product) => (
+                          <option key={product.id} value={product.id}>
+                            {product.name}
+                          </option>
+                        ))}
+                      </SelectField>
+                    )}
+                  />
+                  <Controller
+                    control={control}
+                    name={`items.${index}.size_id`}
+                    render={({ field: sizeField }) => (
+                      <SelectField
+                        label="Tamanho"
+                        name={sizeField.name}
+                        value={String(sizeField.value ?? "")}
+                        onBlur={sizeField.onBlur}
+                        onChange={(event) => sizeField.onChange(event.target.value)}
+                        error={itemErrors?.size_id?.message}
+                      >
+                        <option value="">Selecione...</option>
+                        {catalogs.sizes.map((size) => (
+                          <option key={size.id} value={size.id}>
+                            {size.label}
+                          </option>
+                        ))}
+                      </SelectField>
+                    )}
+                  />
+                  <Input
+                    label="Cor"
+                    error={itemErrors?.color?.message}
+                    placeholder="Ex: Azul marinho"
+                    {...register(`items.${index}.color`)}
+                  />
+                  <Input
+                    label="Quantidade"
+                    type="number"
+                    min={1}
+                    error={itemErrors?.quantity_requested?.message}
+                    {...register(`items.${index}.quantity_requested`)}
+                  />
+                </div>
+
+                <Input
+                  label="Observacoes do item"
+                  error={itemErrors?.notes?.message}
+                  placeholder="Opcional"
+                  {...register(`items.${index}.notes`)}
+                />
+
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  {catalogs.services.map((service) => {
+                    const active = selectedServices.includes(service.id);
+                    return (
+                      <button
+                        key={service.id}
+                        type="button"
+                        onClick={() => toggleService(index, service.id)}
+                        className={cn(
+                          "rounded-lg border p-4 text-left transition focus-visible:focus-ring",
+                          active
+                            ? "border-accent bg-accent-soft text-ink shadow-insetline"
+                            : "border-line bg-white hover:bg-[#FCFAF6]"
+                        )}
+                      >
+                        <span className="text-sm font-black">{service.name}</span>
+                        <span className="mt-2 block text-xs font-semibold text-muted">
+                          R$ {Number(service.price_per_unit ?? 0).toFixed(2).replace(".", ",")} por peca
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {itemErrors?.service_ids?.message ? (
+                  <p className="text-xs font-semibold text-danger">
+                    {itemErrors.service_ids.message}
+                  </p>
+                ) : null}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
       <Card>
-        <CardHeader>
-          <h2 className="text-lg font-black text-ink">Serviços</h2>
-          <p className="mt-1 text-sm text-muted">Os valores sao congelados pelo backend ao criar a OS.</p>
-        </CardHeader>
         <CardContent>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {catalogs.services.map((service) => {
-              const active = selectedServices.includes(service.id);
-              return (
-                <button
-                  key={service.id}
-                  type="button"
-                  onClick={() => toggleService(service.id)}
-                  className={cn(
-                    "rounded-lg border p-4 text-left transition focus-visible:focus-ring",
-                    active
-                      ? "border-accent bg-accent-soft text-ink shadow-insetline"
-                      : "border-line bg-white hover:bg-[#FCFAF6]"
-                  )}
-                >
-                  <span className="text-sm font-black">{service.name}</span>
-                  <span className="mt-2 block text-xs font-semibold text-muted">
-                    R$ {Number(service.price_per_unit ?? 0).toFixed(2).replace(".", ",")} por peca
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          {errors.service_ids?.message ? (
-            <p className="mt-3 text-xs font-semibold text-danger">{errors.service_ids.message}</p>
-          ) : null}
-          <div className="mt-5 flex flex-col gap-4 rounded-md border border-line bg-[#FCFAF6] p-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <label className="flex items-center gap-3 text-sm font-semibold text-ink">
               <input
                 type="checkbox"

@@ -16,7 +16,8 @@ class Service(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     order_services = relationship("OrderService", back_populates="service")
+    order_item_services = relationship("OrderItemService", back_populates="service")
 
     @property
     def can_delete(self) -> bool:
-        return len(self.order_services) == 0
+        return len(self.order_services) == 0 and len(self.order_item_services) == 0

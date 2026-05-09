@@ -11,4 +11,5 @@ class Size(Base):
     label: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
 
     orders = relationship("Order", back_populates="size")
+    order_items = relationship("OrderItem", back_populates="size")
     stock_items = relationship("StockItem", back_populates="size")

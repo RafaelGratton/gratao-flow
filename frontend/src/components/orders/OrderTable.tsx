@@ -69,10 +69,7 @@ export function OrderTable({ orders, loading, onCancel }: OrderTableProps) {
                   {[
                     "ID",
                     "Cliente",
-                    "Produto",
-                    "Tamanho",
-                    "Cor",
-                    "Quantidade",
+                    "Itens",
                     "Status producao",
                     "Status financeiro",
                     "Total",
@@ -99,16 +96,19 @@ export function OrderTable({ orders, loading, onCancel }: OrderTableProps) {
                       {order.client.name}
                     </td>
                     <td className="border-b border-line/70 px-4 py-4 text-muted">
-                      {order.product.name}
-                    </td>
-                    <td className="border-b border-line/70 px-4 py-4 text-muted">
-                      {order.size.label}
-                    </td>
-                    <td className="border-b border-line/70 px-4 py-4 text-muted">
-                      {order.color}
-                    </td>
-                    <td className="border-b border-line/70 px-4 py-4 font-bold text-ink">
-                      {order.quantity_requested}
+                      <div className="max-w-[280px] space-y-1">
+                        {order.items.slice(0, 3).map((item) => (
+                          <p key={item.id} className="font-semibold text-ink">
+                            {item.quantity_requested}x {item.product.name} {item.size.label}
+                            {item.color ? ` / ${item.color}` : ""}
+                          </p>
+                        ))}
+                        {order.items.length > 3 ? (
+                          <p className="text-xs font-bold text-muted">
+                            +{order.items.length - 3} item(ns)
+                          </p>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="border-b border-line/70 px-4 py-4">
                       <StatusBadge

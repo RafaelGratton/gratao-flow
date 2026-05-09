@@ -19,7 +19,14 @@ from app.models.enums import (
     StockMovementType,
     WeeklyClosingStatus,
 )
-from app.models.order import Order, OrderPayment, OrderService, ProductionEvent
+from app.models.order import (
+    Order,
+    OrderItem,
+    OrderItemService,
+    OrderPayment,
+    OrderService,
+    ProductionEvent,
+)
 from app.models.outsourcing import OrderOutsourcing, Outsourcer
 from app.models.product import Product
 from app.models.service import Service
@@ -80,14 +87,15 @@ def create_order(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[User, Depends(get_current_user)],
 ) -> Order:
-    services = _ensure_order_references_exist(db, payload)
+    items_with_services = _ensure_order_references_exist(db, payload)
+    first_item = items_with_services[0][0]
 
     order = Order(
         client_id=payload.client_id,
-        product_id=payload.product_id,
-        size_id=payload.size_id,
-        color=payload.color,
-        quantity_requested=payload.quantity_requested,
+        product_id=first_item.product_id,
+        size_id=first_item.size_id,
+        color=first_item.color,
+        quantity_requested=first_item.quantity_requested,
         quantity_cut=0,
         quantity_extra=0,
         quantity_printed=0,
@@ -101,18 +109,36 @@ def create_order(
     )
 
     total_amount = Decimal("0.00")
-    for service in services:
-        unit_price = _money(service.price_per_unit)
-        total_price = _money(unit_price * payload.quantity_requested)
-        total_amount += total_price
-        order.services.append(
-            OrderService(
-                service_id=service.id,
-                quantity=payload.quantity_requested,
-                unit_price=unit_price,
-                total_price=total_price,
-            )
+    for item_payload, services in items_with_services:
+        order_item = OrderItem(
+            product_id=item_payload.product_id,
+            size_id=item_payload.size_id,
+            color=item_payload.color,
+            quantity_requested=item_payload.quantity_requested,
+            notes=item_payload.notes,
         )
+        order.items.append(order_item)
+
+        for service in services:
+            unit_price = _money(service.price_per_unit)
+            total_price = _money(unit_price * item_payload.quantity_requested)
+            total_amount += total_price
+            order.services.append(
+                OrderService(
+                    service_id=service.id,
+                    quantity=item_payload.quantity_requested,
+                    unit_price=unit_price,
+                    total_price=total_price,
+                )
+            )
+            order_item.services.append(
+                OrderItemService(
+                    service_id=service.id,
+                    quantity=item_payload.quantity_requested,
+                    unit_price=unit_price,
+                    total_price=total_price,
+                )
+            )
 
     order.total_amount = _money(total_amount)
     order.amount_due = order.total_amount
@@ -131,6 +157,11 @@ def list_orders(db: Annotated[Session, Depends(get_db)]) -> list[Order]:
             selectinload(Order.client),
             selectinload(Order.product),
             selectinload(Order.size),
+            selectinload(Order.items).selectinload(OrderItem.product),
+            selectinload(Order.items).selectinload(OrderItem.size),
+            selectinload(Order.items)
+            .selectinload(OrderItem.services)
+            .selectinload(OrderItemService.service),
         )
         .order_by(Order.created_at.desc())
     )
@@ -509,34 +540,42 @@ def pay_order_outsourcing(
     return _get_order_or_404(db, order.id)
 
 
-def _ensure_order_references_exist(db: Session, payload: OrderCreate) -> list[Service]:
+def _ensure_order_references_exist(
+    db: Session,
+    payload: OrderCreate,
+) -> list[tuple[object, list[Service]]]:
     client = db.get(Client, payload.client_id)
     if client is None:
         raise HTTPException(status_code=400, detail="Client not found")
     if not client.is_active:
         raise HTTPException(status_code=400, detail="Inactive client is not allowed")
-    if db.get(Product, payload.product_id) is None:
-        raise HTTPException(status_code=400, detail="Product not found")
-    if db.get(Size, payload.size_id) is None:
-        raise HTTPException(status_code=400, detail="Size not found")
-    if len(set(payload.service_ids)) != len(payload.service_ids):
-        raise HTTPException(status_code=400, detail="Services cannot be duplicated")
 
-    services = list(db.scalars(select(Service).where(Service.id.in_(payload.service_ids))))
-    services_by_id = {service.id: service for service in services}
-    missing_service_ids = [
-        service_id for service_id in payload.service_ids if service_id not in services_by_id
-    ]
-    if missing_service_ids:
-        raise HTTPException(status_code=400, detail="Service not found")
+    items_with_services = []
+    for item in payload.normalized_items():
+        if db.get(Product, item.product_id) is None:
+            raise HTTPException(status_code=400, detail="Product not found")
+        if db.get(Size, item.size_id) is None:
+            raise HTTPException(status_code=400, detail="Size not found")
+        if len(set(item.service_ids)) != len(item.service_ids):
+            raise HTTPException(status_code=400, detail="Services cannot be duplicated")
 
-    inactive_service_ids = [
-        service.id for service in services if not service.is_active
-    ]
-    if inactive_service_ids:
-        raise HTTPException(status_code=400, detail="Inactive services are not allowed")
+        services = list(db.scalars(select(Service).where(Service.id.in_(item.service_ids))))
+        services_by_id = {service.id: service for service in services}
+        missing_service_ids = [
+            service_id for service_id in item.service_ids if service_id not in services_by_id
+        ]
+        if missing_service_ids:
+            raise HTTPException(status_code=400, detail="Service not found")
 
-    return [services_by_id[service_id] for service_id in payload.service_ids]
+        inactive_service_ids = [service.id for service in services if not service.is_active]
+        if inactive_service_ids:
+            raise HTTPException(status_code=400, detail="Inactive services are not allowed")
+
+        items_with_services.append(
+            (item, [services_by_id[service_id] for service_id in item.service_ids])
+        )
+
+    return items_with_services
 
 
 def _get_order_or_404(db: Session, order_id: int) -> Order:
@@ -547,6 +586,11 @@ def _get_order_or_404(db: Session, order_id: int) -> Order:
             selectinload(Order.client),
             selectinload(Order.product),
             selectinload(Order.size),
+            selectinload(Order.items).selectinload(OrderItem.product),
+            selectinload(Order.items).selectinload(OrderItem.size),
+            selectinload(Order.items)
+            .selectinload(OrderItem.services)
+            .selectinload(OrderItemService.service),
             selectinload(Order.services).selectinload(OrderService.service),
             selectinload(Order.payments),
             selectinload(Order.production_events),

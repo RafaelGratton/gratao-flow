@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 from app.models.enums import (
     FinancialStatus,
@@ -40,16 +40,55 @@ PositiveMoneyDecimal = Annotated[
 ]
 
 
-class OrderCreate(BaseModel):
-    client_id: int
+class OrderItemCreate(BaseModel):
     product_id: int
     size_id: int
     color: str
     quantity_requested: int = Field(gt=0)
-    allow_printing_exception: bool = False
-    lot: str
     notes: str | None = None
     service_ids: list[int] = Field(min_length=1)
+
+
+class OrderCreate(BaseModel):
+    client_id: int
+    items: list[OrderItemCreate] | None = None
+    product_id: int | None = None
+    size_id: int | None = None
+    color: str | None = None
+    quantity_requested: int | None = Field(default=None, gt=0)
+    allow_printing_exception: bool = False
+    lot: str = ""
+    notes: str | None = None
+    service_ids: list[int] | None = None
+
+    @model_validator(mode="after")
+    def validate_items(self) -> "OrderCreate":
+        if self.items:
+            return self
+        legacy_fields = (
+            self.product_id,
+            self.size_id,
+            self.color,
+            self.quantity_requested,
+            self.service_ids,
+        )
+        if all(value is not None for value in legacy_fields) and self.service_ids:
+            return self
+        raise ValueError("At least one order item is required")
+
+    def normalized_items(self) -> list[OrderItemCreate]:
+        if self.items:
+            return self.items
+        return [
+            OrderItemCreate(
+                product_id=self.product_id or 0,
+                size_id=self.size_id or 0,
+                color=self.color or "",
+                quantity_requested=self.quantity_requested or 0,
+                notes=self.notes,
+                service_ids=self.service_ids or [],
+            )
+        ]
 
 
 class OrderServiceRead(BaseModel):
@@ -66,6 +105,37 @@ class OrderServiceRead(BaseModel):
     @field_serializer("unit_price", "total_price")
     def serialize_money(self, value: Decimal) -> str:
         return f"{value:.2f}"
+
+
+class OrderItemServiceRead(BaseModel):
+    id: int
+    service_id: int
+    service: ServiceRead
+    quantity: int
+    unit_price: MoneyDecimal
+    total_price: MoneyDecimal
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("unit_price", "total_price")
+    def serialize_money(self, value: Decimal) -> str:
+        return f"{value:.2f}"
+
+
+class OrderItemRead(BaseModel):
+    id: int
+    product_id: int
+    product: ProductRead
+    size_id: int
+    size: SizeRead
+    color: str
+    quantity_requested: int
+    notes: str | None
+    services: list[OrderItemServiceRead]
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PaymentCreate(BaseModel):
@@ -130,6 +200,7 @@ class OrderSummary(BaseModel):
     total_amount: MoneyDecimal
     amount_paid: MoneyDecimal
     amount_due: MoneyDecimal
+    items: list[OrderItemRead] = Field(default_factory=list)
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -149,6 +220,7 @@ class OrderRead(OrderSummary):
     allow_printing_exception: bool
     lot: str
     notes: str | None
+    items: list[OrderItemRead]
     services: list[OrderServiceRead]
     payments: list[PaymentRead]
     production_events: list[ProductionEventRead]

@@ -1,6 +1,13 @@
 from app.models.client import Client
 from app.models.employee import Employee, EmployeeWorkLog
-from app.models.order import Order, OrderPayment, OrderService, ProductionEvent
+from app.models.order import (
+    Order,
+    OrderItem,
+    OrderItemService,
+    OrderPayment,
+    OrderService,
+    ProductionEvent,
+)
 from app.models.outsourcing import OrderOutsourcing, Outsourcer
 from app.models.product import Product
 from app.models.service import Service
@@ -15,6 +22,8 @@ __all__ = [
     "Employee",
     "EmployeeWorkLog",
     "Order",
+    "OrderItem",
+    "OrderItemService",
     "OrderOutsourcing",
     "OrderPayment",
     "OrderService",

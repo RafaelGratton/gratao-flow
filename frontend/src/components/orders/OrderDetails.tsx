@@ -127,7 +127,9 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
           </p>
           <h1 className="mt-1 text-2xl font-black text-ink">{order.client.name}</h1>
           <p className="mt-2 text-sm font-semibold text-muted">
-            {order.product.name} / {order.size.label} / {order.color}
+            {order.items.length > 1
+              ? `${order.items.length} itens nesta OS`
+              : `${order.product.name} / ${order.size.label} / ${order.color}`}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -167,22 +169,55 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
       <section className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
         <Card>
           <CardHeader>
-            <h2 className="text-lg font-black text-ink">Serviços</h2>
+            <h2 className="text-lg font-black text-ink">Itens</h2>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {order.services.map((item) => (
+              {order.items.map((item, index) => (
                 <div
                   key={item.id}
-                  className="grid gap-3 rounded-md border border-line bg-[#FCFAF6] p-4 md:grid-cols-[1fr_auto]"
+                  className="rounded-md border border-line bg-[#FCFAF6] p-4"
                 >
-                  <div>
-                    <p className="font-black text-ink">{item.service.name}</p>
-                    <p className="mt-1 text-sm text-muted">
-                      {item.quantity} peças x {formatCurrency(item.unit_price)}
+                  <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.14em] text-accent-dark">
+                        Item {index + 1}
+                      </p>
+                      <p className="mt-1 font-black text-ink">{item.product.name}</p>
+                      <p className="mt-1 text-sm font-semibold text-muted">
+                        Tamanho {item.size.label} / {item.color || "Sem cor"} /{" "}
+                        {item.quantity_requested} pecas
+                      </p>
+                    </div>
+                    <p className="text-sm font-black text-ink">
+                      {formatCurrency(
+                        item.services
+                          .reduce((total, service) => total + Number(service.total_price), 0)
+                          .toFixed(2)
+                      )}
                     </p>
                   </div>
-                  <p className="text-right font-black text-ink">{formatCurrency(item.total_price)}</p>
+                  <div className="mt-4 space-y-2">
+                    {item.services.map((service) => (
+                      <div
+                        key={service.id}
+                        className="grid gap-2 rounded-md border border-line/80 bg-white p-3 md:grid-cols-[1fr_auto]"
+                      >
+                        <div>
+                          <p className="font-bold text-ink">{service.service.name}</p>
+                          <p className="mt-1 text-sm text-muted">
+                            {service.quantity} pecas x {formatCurrency(service.unit_price)}
+                          </p>
+                        </div>
+                        <p className="text-right font-black text-ink">
+                          {formatCurrency(service.total_price)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  {item.notes ? (
+                    <p className="mt-3 text-sm font-semibold text-muted">{item.notes}</p>
+                  ) : null}
                 </div>
               ))}
             </div>

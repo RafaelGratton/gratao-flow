@@ -12,4 +12,5 @@ class Product(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     orders = relationship("Order", back_populates="product")
+    order_items = relationship("OrderItem", back_populates="product")
     stock_items = relationship("StockItem", back_populates="product")

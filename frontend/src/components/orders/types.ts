@@ -46,7 +46,29 @@ export type OrderSummary = {
   total_amount: string;
   amount_paid: string;
   amount_due: string;
+  items: OrderItem[];
   created_at: string;
+};
+
+export type OrderItem = {
+  id: number;
+  product_id: number;
+  product: { id: number; name: string };
+  size_id: number;
+  size: { id: number; label: string };
+  color: string;
+  quantity_requested: number;
+  notes: string | null;
+  created_at: string;
+  services: Array<{
+    id: number;
+    service_id: number;
+    service: { id: number; name: string; type: string; price_per_unit: string };
+    quantity: number;
+    unit_price: string;
+    total_price: string;
+    created_at: string;
+  }>;
 };
 
 export type OrderDetails = OrderSummary & {

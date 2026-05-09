@@ -84,6 +84,12 @@ class Order(Base):
         cascade="all, delete-orphan",
         order_by="OrderService.id",
     )
+    items = relationship(
+        "OrderItem",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="OrderItem.id",
+    )
     payments = relationship(
         "OrderPayment",
         back_populates="order",
@@ -119,6 +125,48 @@ class OrderService(Base):
 
     order = relationship("Order", back_populates="services")
     service = relationship("Service", back_populates="order_services")
+
+
+class OrderItem(Base):
+    __tablename__ = "order_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), nullable=False)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False)
+    size_id: Mapped[int] = mapped_column(ForeignKey("sizes.id"), nullable=False)
+    color: Mapped[str] = mapped_column(String(100), nullable=False)
+    quantity_requested: Mapped[int] = mapped_column(Integer, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    order = relationship("Order", back_populates="items")
+    product = relationship("Product", back_populates="order_items")
+    size = relationship("Size", back_populates="order_items")
+    services = relationship(
+        "OrderItemService",
+        back_populates="order_item",
+        cascade="all, delete-orphan",
+        order_by="OrderItemService.id",
+    )
+
+
+class OrderItemService(Base):
+    __tablename__ = "order_item_services"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    order_item_id: Mapped[int] = mapped_column(ForeignKey("order_items.id"), nullable=False)
+    service_id: Mapped[int] = mapped_column(ForeignKey("services.id"), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    total_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    order_item = relationship("OrderItem", back_populates="services")
+    service = relationship("Service", back_populates="order_item_services")
 
 
 class OrderPayment(Base):
