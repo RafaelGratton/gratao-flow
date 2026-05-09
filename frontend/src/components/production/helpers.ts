@@ -18,7 +18,7 @@ export function itemNeedsStage(item: OrderItem, stage: "cut" | "print" | "sew" |
   if (stage === "cut") return itemHasService(item, "corte");
   if (stage === "print") return itemHasService(item, "serigrafia");
   if (stage === "sew") return itemHasService(item, "confeccao") && item.sewing_mode === "internal";
-  return itemHasService(item, "confeccao") && item.sewing_mode === "outsourced";
+  return item.sewing_mode === "outsourced";
 }
 
 export function itemStageDone(item: OrderItem, stage: "cut" | "print" | "sew") {

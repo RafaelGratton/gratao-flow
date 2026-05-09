@@ -38,7 +38,7 @@ const itemSchema = z.object({
     .optional()
     .transform((value) => value?.trim() ?? ""),
   quantity_requested: z.coerce.number().int().positive("Informe uma quantidade valida."),
-  sewing_mode: z.enum(["internal", "outsourced"]).nullable().optional(),
+  sewing_mode: z.enum(["internal", "outsourced"]).default("internal"),
   service_ids: z
     .array(z.coerce.number().int().positive())
     .min(1, "Selecione pelo menos um servico."),
@@ -59,7 +59,7 @@ type FormInput = {
     size_id: string;
     color: string;
     quantity_requested: number;
-    sewing_mode: SewingMode | null;
+    sewing_mode: SewingMode;
     service_ids: number[];
     notes: string;
   }>;
@@ -86,7 +86,7 @@ const emptyItem = () => ({
   size_id: "",
   color: "",
   quantity_requested: 1,
-  sewing_mode: null as SewingMode | null,
+  sewing_mode: "internal" as SewingMode,
   service_ids: [],
   notes: ""
 });
@@ -170,7 +170,11 @@ export function OrderForm() {
     return watchedItems.reduce((orderTotal, item) => {
       const quantity = Number(item.quantity_requested || 0);
       const itemTotal = catalogs.services
-        .filter((service) => item.service_ids.includes(service.id))
+        .filter(
+          (service) =>
+            item.service_ids.includes(service.id) &&
+            !(item.sewing_mode === "outsourced" && service.type === "confeccao")
+        )
         .reduce(
           (total, service) => total + Number(service.price_per_unit ?? 0) * quantity,
           0
@@ -192,15 +196,28 @@ export function OrderForm() {
         client_id: values.client_id,
         allow_printing_exception: values.allow_printing_exception,
         notes: values.notes?.trim() ? values.notes : null,
-        items: values.items.map((item) => ({
-          product_id: item.product_id,
-          size_id: item.size_id,
-          color: item.color,
-          quantity_requested: item.quantity_requested,
-          sewing_mode: itemHasSewingService(item.service_ids) ? item.sewing_mode ?? "internal" : null,
-          notes: item.notes?.trim() ? item.notes : null,
-          service_ids: item.service_ids.map(Number)
-        }))
+        items: values.items.map((item) => {
+          const serviceIds = item.service_ids
+            .map(Number)
+            .filter(
+              (serviceId) =>
+                !(item.sewing_mode === "outsourced" && isSewingService(serviceId))
+            );
+          return {
+            product_id: item.product_id,
+            size_id: item.size_id,
+            color: item.color,
+            quantity_requested: item.quantity_requested,
+            sewing_mode:
+              item.sewing_mode === "outsourced"
+                ? "outsourced"
+                : itemHasSewingService(serviceIds)
+                  ? "internal"
+                  : null,
+            notes: item.notes?.trim() ? item.notes : null,
+            service_ids: serviceIds
+          };
+        })
       });
       router.push(`/orders/${order.id}`);
     } catch (requestError) {
@@ -211,6 +228,14 @@ export function OrderForm() {
   }
 
   function toggleService(itemIndex: number, serviceId: number) {
+    const toggledService = catalogs.services.find((service) => service.id === serviceId);
+    if (
+      toggledService?.type === "confeccao" &&
+      watch(`items.${itemIndex}.sewing_mode`) === "outsourced"
+    ) {
+      return;
+    }
+
     const fieldName = `items.${itemIndex}.service_ids` as const;
     const selectedServices = watch(fieldName) ?? [];
     const removing = selectedServices.includes(serviceId);
@@ -218,20 +243,32 @@ export function OrderForm() {
       ? selectedServices.filter((id) => id !== serviceId)
       : [...selectedServices, serviceId];
     setValue(fieldName, next, { shouldDirty: true, shouldValidate: true });
-
-    const toggledService = catalogs.services.find((service) => service.id === serviceId);
-    if (toggledService?.type !== "confeccao") return;
-    setValue(
-      `items.${itemIndex}.sewing_mode`,
-      removing ? null : "internal",
-      { shouldDirty: true, shouldValidate: true }
-    );
   }
 
   function itemHasSewingService(serviceIds: number[]) {
-    return serviceIds.some((serviceId) =>
-      catalogs.services.some((service) => service.id === serviceId && service.type === "confeccao")
+    return serviceIds.some(isSewingService);
+  }
+
+  function isSewingService(serviceId: number) {
+    return catalogs.services.some(
+      (service) => service.id === serviceId && service.type === "confeccao"
     );
+  }
+
+  function setProductionMode(itemIndex: number, mode: SewingMode) {
+    setValue(`items.${itemIndex}.sewing_mode`, mode, {
+      shouldDirty: true,
+      shouldValidate: true
+    });
+    if (mode === "outsourced") {
+      const fieldName = `items.${itemIndex}.service_ids` as const;
+      const selectedServices = watch(fieldName) ?? [];
+      setValue(
+        fieldName,
+        selectedServices.filter((serviceId) => !isSewingService(serviceId)),
+        { shouldDirty: true, shouldValidate: true }
+      );
+    }
   }
 
   function handleClientCreated(client: Client) {
@@ -326,7 +363,8 @@ export function OrderForm() {
 
         {fields.map((field, index) => {
           const selectedServices = watchedItems[index]?.service_ids ?? [];
-          const hasSewing = itemHasSewingService(selectedServices);
+          const productionMode = watchedItems[index]?.sewing_mode ?? "internal";
+          const outsourced = productionMode === "outsourced";
           const itemErrors = errors.items?.[index];
           return (
             <Card key={field.id}>
@@ -411,24 +449,71 @@ export function OrderForm() {
                   {...register(`items.${index}.notes`)}
                 />
 
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold text-ink">Producao final</p>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {[
+                      ["internal", "Interna"],
+                      ["outsourced", "Terceirizada"]
+                    ].map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setProductionMode(index, value as SewingMode)}
+                        className={cn(
+                          "flex min-h-14 items-center gap-3 rounded-lg border p-3 text-left text-sm font-semibold transition focus-visible:focus-ring",
+                          productionMode === value
+                            ? "border-accent bg-accent-soft text-ink shadow-insetline"
+                            : "border-line bg-white text-muted hover:bg-[#FCFAF6]"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "grid h-4 w-4 place-items-center rounded-full border",
+                            productionMode === value
+                              ? "border-accent bg-accent"
+                              : "border-line bg-white"
+                          )}
+                        >
+                          {productionMode === value ? (
+                            <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                          ) : null}
+                        </span>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {itemErrors?.sewing_mode?.message ? (
+                    <p className="text-xs font-semibold text-danger">
+                      {itemErrors.sewing_mode.message}
+                    </p>
+                  ) : null}
+                </div>
+
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                   {catalogs.services.map((service) => {
                     const active = selectedServices.includes(service.id);
+                    const disabled = outsourced && service.type === "confeccao";
                     return (
                       <button
                         key={service.id}
                         type="button"
+                        disabled={disabled}
                         onClick={() => toggleService(index, service.id)}
                         className={cn(
                           "rounded-lg border p-4 text-left transition focus-visible:focus-ring",
-                          active
+                          disabled
+                            ? "cursor-not-allowed border-line bg-[#F7F1E7] text-muted opacity-80"
+                            : active
                             ? "border-accent bg-accent-soft text-ink shadow-insetline"
                             : "border-line bg-white hover:bg-[#FCFAF6]"
                         )}
                       >
                         <span className="text-sm font-black">{service.name}</span>
                         <span className="mt-2 block text-xs font-semibold text-muted">
-                          R$ {Number(service.price_per_unit ?? 0).toFixed(2).replace(".", ",")} por peca
+                          {disabled
+                            ? "Para terceirizacao, o valor e lancado na aba Terceirizacao."
+                            : `R$ ${Number(service.price_per_unit ?? 0).toFixed(2).replace(".", ",")} por peca`}
                         </span>
                       </button>
                     );
@@ -438,41 +523,6 @@ export function OrderForm() {
                   <p className="text-xs font-semibold text-danger">
                     {itemErrors.service_ids.message}
                   </p>
-                ) : null}
-
-                {hasSewing ? (
-                  <div className="space-y-3">
-                    <p className="text-sm font-semibold text-ink">Tipo de confeccao</p>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      {[
-                        ["internal", "Interna"],
-                        ["outsourced", "Terceirizada"]
-                      ].map(([value, label]) => (
-                        <label
-                          key={value}
-                          className={cn(
-                            "flex min-h-14 cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm font-semibold transition",
-                            (watchedItems[index]?.sewing_mode ?? "internal") === value
-                              ? "border-accent bg-accent-soft text-ink shadow-insetline"
-                              : "border-line bg-white text-muted hover:bg-[#FCFAF6]"
-                          )}
-                        >
-                          <input
-                            type="radio"
-                            className="h-4 w-4 border-line text-accent focus:focus-ring"
-                            value={value}
-                            {...register(`items.${index}.sewing_mode`)}
-                          />
-                          {label}
-                        </label>
-                      ))}
-                    </div>
-                    {itemErrors?.sewing_mode?.message ? (
-                      <p className="text-xs font-semibold text-danger">
-                        {itemErrors.sewing_mode.message}
-                      </p>
-                    ) : null}
-                  </div>
                 ) : null}
               </CardContent>
             </Card>

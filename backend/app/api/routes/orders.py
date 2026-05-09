@@ -689,20 +689,37 @@ def _ensure_order_references_exist(
 def _validate_item_sewing_mode(item: object, services: list[Service]) -> None:
     has_sewing = any(service.type == "confeccao" for service in services)
     sewing_mode = getattr(item, "sewing_mode", None)
+    if sewing_mode == SewingMode.OUTSOURCED and has_sewing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Item terceirizado não deve incluir serviço Confecção. "
+                "Os valores da terceirização são lançados na aba Terceirização."
+            ),
+        )
     if has_sewing:
+        return
+    if sewing_mode == SewingMode.INTERNAL and not has_sewing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="sewing_mode=internal so deve ser usado com servico de Confeccao.",
+        )
+    if sewing_mode == SewingMode.OUTSOURCED:
         return
     if sewing_mode is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="sewing_mode so pode ser informado para itens com servico de Confeccao.",
+            detail="sewing_mode invalido para os servicos informados.",
         )
 
 
 def _normalized_sewing_mode(item: object, services: list[Service]) -> SewingMode | None:
     has_sewing = any(service.type == "confeccao" for service in services)
+    sewing_mode = getattr(item, "sewing_mode", None)
+    if sewing_mode == SewingMode.OUTSOURCED:
+        return SewingMode.OUTSOURCED
     if not has_sewing:
         return None
-    sewing_mode = getattr(item, "sewing_mode", None)
     return sewing_mode or SewingMode.INTERNAL
 
 
@@ -936,10 +953,10 @@ def _validate_outsourcer_exists(db: Session, outsourcer_id: int | None) -> None:
 
 
 def _available_outsourcing_quantity(order: Order) -> int:
-    max_quantity = (
-        order.quantity_cut
-        if order.production_status == ProductionStatus.CUT_DONE
-        else order.quantity_printed
+    max_quantity = sum(
+        _available_item_outsourcing_quantity(item)
+        for item in order.items
+        if _item_is_ready_for_outsourcing(item)
     )
     already_outsourced = sum(
         outsourcing.quantity_sent
@@ -1045,9 +1062,9 @@ def _derive_order_status_from_items(order: Order) -> ProductionStatus:
 
 
 def _item_is_complete(item: OrderItem) -> bool:
+    if item.sewing_mode == SewingMode.OUTSOURCED:
+        return False
     if _item_has_sewing(item):
-        if item.sewing_mode == SewingMode.OUTSOURCED:
-            return False
         return item.quantity_sewn >= item.quantity_requested
     if _item_has_printing(item):
         return item.quantity_printed >= item.quantity_requested
@@ -1057,13 +1074,21 @@ def _item_is_complete(item: OrderItem) -> bool:
 
 
 def _item_is_ready_for_outsourcing(item: OrderItem) -> bool:
-    if not _item_has_sewing(item) or item.sewing_mode != SewingMode.OUTSOURCED:
+    if item.sewing_mode != SewingMode.OUTSOURCED:
         return False
     if _item_has_cut(item) and item.quantity_cut < item.quantity_requested:
         return False
     if _item_has_printing(item) and item.quantity_printed < item.quantity_requested:
         return False
     return True
+
+
+def _available_item_outsourcing_quantity(item: OrderItem) -> int:
+    if _item_has_printing(item):
+        return min(item.quantity_printed, item.quantity_requested)
+    if _item_has_cut(item):
+        return min(item.quantity_cut, item.quantity_requested)
+    return item.quantity_requested
 
 
 def _can_advance_status(

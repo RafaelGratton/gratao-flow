@@ -8,7 +8,7 @@ import { OutsourcingCreateModal } from "@/components/outsourcing/OutsourcingCrea
 import { OutsourcingList } from "@/components/outsourcing/OutsourcingList";
 import { OutsourcingReturnModal } from "@/components/outsourcing/OutsourcingReturnModal";
 import { OutsourcerQuickCreateModal } from "@/components/outsourcing/OutsourcerQuickCreateModal";
-import { itemReadyForOutsourcing } from "@/components/production/helpers";
+import { itemHasService, itemReadyForOutsourcing } from "@/components/production/helpers";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { api } from "@/lib/api";
@@ -20,7 +20,16 @@ type ReturnTarget = {
 };
 
 function availableQuantity(order: OrderDetails) {
-  const base = order.production_status === "cut_done" ? order.quantity_cut : order.quantity_printed;
+  const base = order.items.reduce((total, item) => {
+    if (!itemReadyForOutsourcing(item)) return total;
+    if (itemHasService(item, "serigrafia")) {
+      return total + Math.min(item.quantity_printed, item.quantity_requested);
+    }
+    if (itemHasService(item, "corte")) {
+      return total + Math.min(item.quantity_cut, item.quantity_requested);
+    }
+    return total + item.quantity_requested;
+  }, 0);
   const alreadyOutsourced = order.outsourcings
     .filter((outsourcing) => outsourcing.status !== "cancelled")
     .reduce((total, outsourcing) => total + outsourcing.quantity_sent, 0);
