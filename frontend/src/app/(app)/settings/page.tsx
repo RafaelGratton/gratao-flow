@@ -16,6 +16,13 @@ type Service = {
   can_delete?: boolean;
 };
 
+type Product = {
+  id: number;
+  name: string;
+  is_active: boolean;
+  can_delete?: boolean;
+};
+
 const serviceTypes = ["corte", "serigrafia", "confeccao", "terceirizacao", "extra"] as const;
 
 type SystemSettings = {
@@ -36,10 +43,13 @@ const emptySettings: SystemSettings = {
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<SystemSettings>(emptySettings);
+  const [products, setProducts] = useState<Product[]>([]);
   const [services, setServices] = useState<Service[]>([]);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [savingProduct, setSavingProduct] = useState(false);
   const [savingService, setSavingService] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -51,13 +61,15 @@ export default function SettingsPage() {
       setLoading(true);
       setError(null);
       try {
-        const [settingsData, serviceData] = await Promise.all([
+        const [settingsData, productData, serviceData] = await Promise.all([
           api.get<SystemSettings>("/settings"),
+          api.get<Product[]>("/products"),
           api.get<Service[]>("/services")
         ]);
 
         if (active) {
           setSettings(settingsData);
+          setProducts(productData);
           setServices(serviceData);
         }
       } catch (requestError) {
@@ -141,6 +153,67 @@ export default function SettingsPage() {
       );
     } finally {
       setSavingService(false);
+    }
+  }
+
+  async function saveProduct(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingProduct) return;
+
+    setSavingProduct(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      const payload = {
+        name: editingProduct.name.trim(),
+        is_active: editingProduct.is_active
+      };
+      const updated =
+        editingProduct.id === 0
+          ? await api.post<Product>("/products", payload)
+          : await api.put<Product>(`/products/${editingProduct.id}`, payload);
+      setProducts((current) => [
+        updated,
+        ...current.filter((product) => product.id !== updated.id)
+      ]);
+      setEditingProduct(null);
+      setFeedback("Produto salvo com sucesso.");
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Nao foi possivel salvar o produto."
+      );
+    } finally {
+      setSavingProduct(false);
+    }
+  }
+
+  async function deleteProduct(product: Product) {
+    const action = product.can_delete ? "excluido" : "desativado";
+    const confirmed = window.confirm(
+      `Este produto sera ${action} da operacao. OS antigas continuam mostrando o produto cadastrado. Deseja continuar?`
+    );
+    if (!confirmed) return;
+
+    setError(null);
+    setFeedback(null);
+    try {
+      const updated = await api.delete<Product | undefined>(`/products/${product.id}`);
+      if (updated) {
+        setProducts((current) =>
+          current.map((item) => (item.id === updated.id ? updated : item))
+        );
+        setFeedback("Produto desativado com sucesso.");
+      } else {
+        setProducts((current) => current.filter((item) => item.id !== product.id));
+        setFeedback("Produto excluido com sucesso.");
+      }
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error ? requestError.message : "Nao foi possivel remover o produto."
+      );
     }
   }
 
@@ -244,6 +317,87 @@ export default function SettingsPage() {
 
       <section className="rounded-lg border border-line bg-white shadow-insetline">
         <div className="flex flex-col gap-3 border-b border-line px-5 py-4 md:flex-row md:items-center md:justify-between">
+          <h2 className="text-lg font-black text-ink">Produtos</h2>
+          <Button
+            type="button"
+            onClick={() =>
+              setEditingProduct({
+                id: 0,
+                name: "",
+                is_active: true,
+                can_delete: true
+              })
+            }
+          >
+            <Plus size={18} />
+            Novo produto
+          </Button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[520px] text-left text-sm">
+            <thead className="bg-[#FCFAF6] text-xs font-bold uppercase tracking-[0.12em] text-muted">
+              <tr>
+                <th className="px-5 py-3">Produto</th>
+                <th className="px-5 py-3">Status</th>
+                <th className="px-5 py-3 text-right">Acao</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {loading ? (
+                <tr>
+                  <td className="px-5 py-5 font-semibold text-muted" colSpan={3}>
+                    Carregando produtos...
+                  </td>
+                </tr>
+              ) : null}
+              {!loading && products.length === 0 ? (
+                <tr>
+                  <td className="px-5 py-5 font-semibold text-muted" colSpan={3}>
+                    Nenhum produto cadastrado.
+                  </td>
+                </tr>
+              ) : null}
+              {!loading
+                ? products.map((product) => (
+                    <tr key={product.id}>
+                      <td className="px-5 py-4 font-bold text-ink">{product.name}</td>
+                      <td className="px-5 py-4">
+                        <Badge tone={product.is_active ? "success" : "neutral"}>
+                          {product.is_active ? "Ativo" : "Inativo"}
+                        </Badge>
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => setEditingProduct(product)}
+                          >
+                            <Edit size={16} />
+                            Editar
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="text-danger hover:text-danger"
+                            onClick={() => void deleteProduct(product)}
+                          >
+                            <Trash2 size={16} />
+                            {product.can_delete ? "Excluir" : "Desativar"}
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-line bg-white shadow-insetline">
+        <div className="flex flex-col gap-3 border-b border-line px-5 py-4 md:flex-row md:items-center md:justify-between">
           <h2 className="text-lg font-black text-ink">Tabela de Preços</h2>
           <Button
             type="button"
@@ -329,6 +483,13 @@ export default function SettingsPage() {
         </div>
       </section>
 
+      <ProductEditModal
+        product={editingProduct}
+        saving={savingProduct}
+        onClose={() => setEditingProduct(null)}
+        onChange={setEditingProduct}
+        onSubmit={saveProduct}
+      />
       <ServiceEditModal
         service={editingService}
         saving={savingService}
@@ -423,6 +584,80 @@ function ServiceEditModal({
               disabled={saving}
             />
             Serviço ativo
+          </label>
+
+          <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
+              Cancelar
+            </Button>
+            <Button type="submit" isLoading={saving}>
+              <Check size={18} />
+              Salvar
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ProductEditModal({
+  product,
+  saving,
+  onClose,
+  onChange,
+  onSubmit
+}: {
+  product: Product | null;
+  saving: boolean;
+  onClose: () => void;
+  onChange: (product: Product) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  if (!product) return null;
+
+  const title = product.id === 0 ? "Novo produto" : "Editar produto";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-nav/45 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-lg border border-line bg-white shadow-[0_28px_80px_rgba(0,0,0,0.22)]">
+        <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent-dark">
+              Produtos
+            </p>
+            <h2 className="mt-1 text-xl font-black text-ink">{title}</h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-10 w-10 place-items-center rounded-md text-muted transition hover:bg-[#FCFAF6] hover:text-ink focus-visible:focus-ring"
+            aria-label="Fechar modal"
+            disabled={saving}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <form className="space-y-4 p-5" onSubmit={onSubmit}>
+          <Input
+            label="Produto"
+            value={product.name}
+            onChange={(event) => onChange({ ...product, name: event.target.value })}
+            disabled={saving}
+            required
+          />
+          <label className="flex items-center gap-3 rounded-md border border-line bg-[#FCFAF6] p-3 text-sm font-semibold text-ink">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-line text-accent focus:focus-ring"
+              checked={product.is_active}
+              onChange={(event) =>
+                onChange({ ...product, is_active: event.target.checked })
+              }
+              disabled={saving}
+            />
+            Produto ativo
           </label>
 
           <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">

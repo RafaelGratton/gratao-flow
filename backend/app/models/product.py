@@ -14,3 +14,11 @@ class Product(Base):
     orders = relationship("Order", back_populates="product")
     order_items = relationship("OrderItem", back_populates="product")
     stock_items = relationship("StockItem", back_populates="product")
+
+    @property
+    def can_delete(self) -> bool:
+        return (
+            len(self.orders) == 0
+            and len(self.order_items) == 0
+            and len(self.stock_items) == 0
+        )

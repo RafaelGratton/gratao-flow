@@ -139,7 +139,7 @@ export function OrderForm() {
         if (active) {
           setCatalogs({
             clients: clients.filter((client) => client.is_active),
-            products,
+            products: products.filter((product) => product.is_active !== false),
             sizes,
             services: services.filter((service) => service.is_active !== false)
           });

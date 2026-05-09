@@ -40,6 +40,7 @@ from app.schemas.order import (
     OrderCreate,
     OrderRead,
     OrderSummary,
+    OrderUpdate,
     PaymentCreate,
     PrintRegister,
     SewingRegister,
@@ -179,6 +180,32 @@ def list_orders(db: Annotated[Session, Depends(get_db)]) -> list[Order]:
 @router.get("/{order_id}", response_model=OrderRead)
 def get_order(order_id: int, db: Annotated[Session, Depends(get_db)]) -> Order:
     return _get_order_or_404(db, order_id)
+
+
+@router.put("/{order_id}", response_model=OrderRead)
+def update_order(
+    order_id: int,
+    payload: OrderUpdate,
+    db: Annotated[Session, Depends(get_db)],
+) -> Order:
+    order = _get_order_or_404(db, order_id)
+    _ensure_order_is_not_in_closed_weekly_closing(db, order)
+
+    if _order_has_movements(order):
+        _apply_safe_order_update(order, payload)
+        db.commit()
+        return _get_order_or_404(db, order.id)
+
+    items_with_services = _ensure_order_references_exist(db, payload)
+    order.client_id = payload.client_id
+    order.allow_printing_exception = payload.allow_printing_exception
+    order.notes = payload.notes
+    _replace_order_items(order, items_with_services)
+    _sync_order_snapshot_from_items(order)
+    _refresh_financials(order)
+
+    db.commit()
+    return _get_order_or_404(db, order.id)
 
 
 @router.delete("/{order_id}", response_model=OrderRead)
@@ -656,9 +683,150 @@ def pay_order_outsourcing(
     return _get_order_or_404(db, order.id)
 
 
+def _order_has_movements(order: Order) -> bool:
+    return (
+        order.production_status != ProductionStatus.CREATED
+        or order.quantity_cut > 0
+        or order.quantity_printed > 0
+        or order.quantity_sewn > 0
+        or bool(order.production_events)
+        or bool(order.payments)
+        or bool(order.outsourcings)
+        or any(
+            item.quantity_cut > 0
+            or item.quantity_printed > 0
+            or item.quantity_sewn > 0
+            or item.quantity_delivered > 0
+            or item.delivered_at is not None
+            for item in order.items
+        )
+    )
+
+
+def _apply_safe_order_update(order: Order, payload: OrderUpdate) -> None:
+    existing_items = {item.id: item for item in order.items}
+    payload_ids = [item.id for item in payload.items]
+    if any(item_id is None for item_id in payload_ids):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Esta OS ja possui movimentacoes. Nao e possivel adicionar itens; "
+                "apenas cor e observacoes podem ser alteradas."
+            ),
+        )
+    if set(payload_ids) != set(existing_items):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Esta OS ja possui movimentacoes. Nao e possivel remover ou trocar itens; "
+                "apenas cor e observacoes podem ser alteradas."
+            ),
+        )
+    if payload.client_id != order.client_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Esta OS ja possui movimentacoes. Nao e possivel alterar o cliente; "
+                "apenas cor e observacoes podem ser alteradas."
+            ),
+        )
+    if payload.allow_printing_exception != order.allow_printing_exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Esta OS ja possui movimentacoes. Nao e possivel alterar excecoes de producao; "
+                "apenas cor e observacoes podem ser alteradas."
+            ),
+        )
+
+    for item_payload in payload.items:
+        item = existing_items[item_payload.id]
+        current_service_ids = [item_service.service_id for item_service in item.services]
+        if (
+            item_payload.product_id != item.product_id
+            or item_payload.size_id != item.size_id
+            or item_payload.quantity_requested != item.quantity_requested
+            or item_payload.sewing_mode != item.sewing_mode
+            or item_payload.service_ids != current_service_ids
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Esta OS ja possui movimentacoes. Campos de produto, tamanho, "
+                    "quantidade, servicos e producao final nao podem ser alterados."
+                ),
+            )
+        item.color = item_payload.color
+        item.notes = item_payload.notes
+
+    first_item = order.items[0]
+    order.product_id = first_item.product_id
+    order.size_id = first_item.size_id
+    order.color = first_item.color
+    order.notes = payload.notes
+
+
+def _replace_order_items(
+    order: Order,
+    items_with_services: list[tuple[object, list[Service]]],
+) -> None:
+    order.items.clear()
+    order.services.clear()
+
+    total_amount = Decimal("0.00")
+    for item_payload, services in items_with_services:
+        order_item = OrderItem(
+            product_id=item_payload.product_id,
+            size_id=item_payload.size_id,
+            color=item_payload.color,
+            quantity_requested=item_payload.quantity_requested,
+            quantity_cut=0,
+            quantity_printed=0,
+            quantity_sewn=0,
+            sewing_mode=_normalized_sewing_mode(item_payload, services),
+            notes=item_payload.notes,
+        )
+        order.items.append(order_item)
+
+        for service in services:
+            unit_price = _money(service.price_per_unit)
+            total_price = _money(unit_price * item_payload.quantity_requested)
+            total_amount += total_price
+            order.services.append(
+                OrderService(
+                    service_id=service.id,
+                    quantity=item_payload.quantity_requested,
+                    unit_price=unit_price,
+                    total_price=total_price,
+                )
+            )
+            order_item.services.append(
+                OrderItemService(
+                    service_id=service.id,
+                    quantity=item_payload.quantity_requested,
+                    unit_price=unit_price,
+                    total_price=total_price,
+                )
+            )
+
+    order.total_amount = _money(total_amount)
+
+
+def _sync_order_snapshot_from_items(order: Order) -> None:
+    first_item = order.items[0]
+    order.product_id = first_item.product_id
+    order.size_id = first_item.size_id
+    order.color = first_item.color
+    order.quantity_requested = sum(item.quantity_requested for item in order.items)
+    order.quantity_cut = sum(item.quantity_cut for item in order.items)
+    order.quantity_printed = sum(item.quantity_printed for item in order.items)
+    order.quantity_sewn = sum(item.quantity_sewn for item in order.items)
+    order.quantity_extra = 0
+
+
 def _ensure_order_references_exist(
     db: Session,
-    payload: OrderCreate,
+    payload: OrderCreate | OrderUpdate,
 ) -> list[tuple[object, list[Service]]]:
     client = db.get(Client, payload.client_id)
     if client is None:
@@ -666,10 +834,14 @@ def _ensure_order_references_exist(
     if not client.is_active:
         raise HTTPException(status_code=400, detail="Inactive client is not allowed")
 
+    items = payload.normalized_items() if isinstance(payload, OrderCreate) else payload.items
     items_with_services = []
-    for item in payload.normalized_items():
-        if db.get(Product, item.product_id) is None:
+    for item in items:
+        product = db.get(Product, item.product_id)
+        if product is None:
             raise HTTPException(status_code=400, detail="Product not found")
+        if not product.is_active:
+            raise HTTPException(status_code=400, detail="Inactive product is not allowed")
         if db.get(Size, item.size_id) is None:
             raise HTTPException(status_code=400, detail="Size not found")
         if len(set(item.service_ids)) != len(item.service_ids):

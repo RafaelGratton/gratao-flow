@@ -1,10 +1,11 @@
 "use client";
 
-import { ArrowLeft, CreditCard, ReceiptText, XCircle } from "lucide-react";
+import { ArrowLeft, CreditCard, Pencil, ReceiptText, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PaymentModal } from "@/components/orders/PaymentModal";
+import { OrderEditModal } from "@/components/orders/OrderEditModal";
 import { ProductionFlow } from "@/components/orders/ProductionFlow";
 import { OrderReportsCard } from "@/components/orders/reports/OrderReportsCard";
 import {
@@ -32,6 +33,7 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
 
@@ -140,6 +142,10 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
             label={financialLabels[order.financial_status]}
             status={financialTone(order.financial_status)}
           />
+          <Button type="button" variant="secondary" onClick={() => setEditOpen(true)}>
+            <Pencil size={18} />
+            Editar OS
+          </Button>
           <Button
             type="button"
             variant="ghost"
@@ -284,6 +290,12 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
         orderId={order.id}
         open={paymentOpen}
         onClose={() => setPaymentOpen(false)}
+        onUpdated={setOrder}
+      />
+      <OrderEditModal
+        order={order}
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
         onUpdated={setOrder}
       />
     </div>

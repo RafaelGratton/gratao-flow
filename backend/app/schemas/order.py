@@ -52,6 +52,17 @@ class OrderItemCreate(BaseModel):
     service_ids: list[int] = Field(min_length=1)
 
 
+class OrderItemUpdate(BaseModel):
+    id: int | None = None
+    product_id: int
+    size_id: int
+    color: str
+    quantity_requested: int = Field(gt=0)
+    sewing_mode: SewingMode | None = None
+    notes: str | None = None
+    service_ids: list[int] = Field(min_length=1)
+
+
 class OrderCreate(BaseModel):
     client_id: int
     items: list[OrderItemCreate] | None = None
@@ -93,6 +104,13 @@ class OrderCreate(BaseModel):
                 service_ids=self.service_ids or [],
             )
         ]
+
+
+class OrderUpdate(BaseModel):
+    client_id: int
+    items: list[OrderItemUpdate] = Field(min_length=1)
+    allow_printing_exception: bool = False
+    notes: str | None = None
 
 
 class OrderServiceRead(BaseModel):
