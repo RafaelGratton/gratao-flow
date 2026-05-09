@@ -2,45 +2,45 @@
 
 import { Shirt, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { OrderDetails } from "@/components/orders/types";
-import { hasPrinting } from "@/components/production/helpers";
+import type { OrderDetails, OrderItem } from "@/components/orders/types";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { api } from "@/lib/api";
 
 type Props = {
   order: OrderDetails | null;
+  item: OrderItem | null;
   open: boolean;
   onClose: () => void;
   onUpdated: (order: OrderDetails) => void;
 };
 
-export function ProductionSewModal({ order, open, onClose, onUpdated }: Props) {
+export function ProductionSewModal({ order, item, open, onClose, onUpdated }: Props) {
   const [quantity, setQuantity] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const suggestedQuantity = useMemo(() => {
-    if (!order) return 0;
-    const available = hasPrinting(order) ? order.quantity_printed : Math.min(order.quantity_cut, order.quantity_requested);
-    return Math.max(available - order.quantity_sewn, 0);
-  }, [order]);
+    if (!item) return 0;
+    const available = Math.min(item.quantity_cut, item.quantity_requested);
+    return Math.max(available - item.quantity_sewn, 0);
+  }, [item]);
 
   useEffect(() => {
-    if (open && order) {
-      setQuantity(String(suggestedQuantity || order.quantity_requested));
+    if (open && order && item) {
+      setQuantity("");
       setError(null);
     }
-  }, [open, order, suggestedQuantity]);
+  }, [open, order, item]);
 
-  if (!open || !order) return null;
+  if (!open || !order || !item) return null;
 
   async function submit() {
-    if (!order) return;
+    if (!order || !item) return;
     setLoading(true);
     setError(null);
     try {
-      const updated = await api.post<OrderDetails>(`/orders/${order.id}/sew`, {
+      const updated = await api.post<OrderDetails>(`/orders/${order.id}/items/${item.id}/sew`, {
         quantity: Number(quantity)
       });
       onUpdated(updated);
@@ -61,8 +61,10 @@ export function ProductionSewModal({ order, open, onClose, onUpdated }: Props) {
               <Shirt size={18} />
             </div>
             <div>
-              <h2 className="text-lg font-black text-ink">Registrar confecção</h2>
-              <p className="text-sm font-semibold text-muted">OS #{order.id}</p>
+              <h2 className="text-lg font-black text-ink">Registrar confeccao</h2>
+              <p className="text-sm font-semibold text-muted">
+                OS #{order.id} - {item.product.name} tamanho {item.size.label}
+              </p>
             </div>
           </div>
           <button
@@ -80,15 +82,16 @@ export function ProductionSewModal({ order, open, onClose, onUpdated }: Props) {
             </div>
           ) : null}
           <Input
-            label="Quantidade confeccionada"
+            label="Quantidade confeccionada agora"
             type="number"
             min="1"
+            max={suggestedQuantity}
             step="1"
             value={quantity}
             onChange={(event) => setQuantity(event.target.value)}
           />
           <div className="rounded-md border border-line bg-[#FCFAF6] p-3 text-xs font-semibold leading-5 text-muted">
-            A confecção registra incremento e respeita automaticamente a dependência de corte ou serigrafia validada pela API.
+            Disponivel para confeccao: {suggestedQuantity}. O registro e incremental por item.
           </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={onClose}>

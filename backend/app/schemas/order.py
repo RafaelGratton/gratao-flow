@@ -9,6 +9,7 @@ from app.models.enums import (
     PaymentMethod,
     PrintType,
     ProductionEventType,
+    ProductionFlow,
     ProductionStatus,
 )
 from app.schemas.client import ClientRead
@@ -45,6 +46,7 @@ class OrderItemCreate(BaseModel):
     size_id: int
     color: str
     quantity_requested: int = Field(gt=0)
+    production_flow: ProductionFlow = ProductionFlow.INTERNAL_SEWING
     notes: str | None = None
     service_ids: list[int] = Field(min_length=1)
 
@@ -85,6 +87,7 @@ class OrderCreate(BaseModel):
                 size_id=self.size_id or 0,
                 color=self.color or "",
                 quantity_requested=self.quantity_requested or 0,
+                production_flow=ProductionFlow.INTERNAL_SEWING,
                 notes=self.notes,
                 service_ids=self.service_ids or [],
             )
@@ -131,6 +134,10 @@ class OrderItemRead(BaseModel):
     size: SizeRead
     color: str
     quantity_requested: int
+    quantity_cut: int
+    quantity_printed: int
+    quantity_sewn: int
+    production_flow: ProductionFlow
     notes: str | None
     services: list[OrderItemServiceRead]
     created_at: datetime
@@ -162,6 +169,7 @@ class PaymentRead(BaseModel):
 
 class ProductionEventRead(BaseModel):
     id: int
+    order_item_id: int | None
     event_type: ProductionEventType
     quantity: int | None
     notes: str | None
@@ -174,6 +182,11 @@ class ProductionEventRead(BaseModel):
 
 class CutRegister(BaseModel):
     quantity_cut: int = Field(gt=0)
+    notes: str | None = None
+
+
+class ItemQuantityRegister(BaseModel):
+    quantity: int = Field(gt=0)
     notes: str | None = None
 
 

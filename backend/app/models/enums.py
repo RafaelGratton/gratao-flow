@@ -36,6 +36,13 @@ class PrintType(StrEnum):
     FRONT_BACK = "front_back"
 
 
+class ProductionFlow(StrEnum):
+    DELIVER_AFTER_CUT = "deliver_after_cut"
+    DELIVER_AFTER_PRINT = "deliver_after_print"
+    INTERNAL_SEWING = "internal_sewing"
+    OUTSOURCED_SEWING = "outsourced_sewing"
+
+
 class ProductionEventType(StrEnum):
     CUT_REGISTERED = "cut_registered"
     PRINT_REGISTERED = "print_registered"

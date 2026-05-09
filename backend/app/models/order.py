@@ -10,6 +10,7 @@ from app.models.enums import (
     PaymentMethod,
     PrintType,
     ProductionEventType,
+    ProductionFlow,
     ProductionStatus,
 )
 
@@ -136,6 +137,18 @@ class OrderItem(Base):
     size_id: Mapped[int] = mapped_column(ForeignKey("sizes.id"), nullable=False)
     color: Mapped[str] = mapped_column(String(100), nullable=False)
     quantity_requested: Mapped[int] = mapped_column(Integer, nullable=False)
+    quantity_cut: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    quantity_printed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    quantity_sewn: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    production_flow: Mapped[ProductionFlow] = mapped_column(
+        Enum(
+            ProductionFlow,
+            name="production_flow",
+            values_callable=lambda enum_class: [item.value for item in enum_class],
+        ),
+        default=ProductionFlow.INTERNAL_SEWING,
+        nullable=False,
+    )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -149,6 +162,11 @@ class OrderItem(Base):
         back_populates="order_item",
         cascade="all, delete-orphan",
         order_by="OrderItemService.id",
+    )
+    production_events = relationship(
+        "ProductionEvent",
+        back_populates="order_item",
+        order_by="ProductionEvent.id",
     )
 
 
@@ -199,6 +217,9 @@ class ProductionEvent(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), nullable=False)
+    order_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("order_items.id"), nullable=True
+    )
     event_type: Mapped[ProductionEventType] = mapped_column(
         Enum(
             ProductionEventType,
@@ -230,3 +251,4 @@ class ProductionEvent(Base):
     )
 
     order = relationship("Order", back_populates="production_events")
+    order_item = relationship("OrderItem", back_populates="production_events")

@@ -16,6 +16,12 @@ export type ProductionStatus =
 
 export type FinancialStatus = "pending" | "partial" | "paid";
 
+export type ProductionFlow =
+  | "deliver_after_cut"
+  | "deliver_after_print"
+  | "internal_sewing"
+  | "outsourced_sewing";
+
 export type OutsourcingStatus =
   | "sent"
   | "partially_returned"
@@ -58,6 +64,10 @@ export type OrderItem = {
   size: { id: number; label: string };
   color: string;
   quantity_requested: number;
+  quantity_cut: number;
+  quantity_printed: number;
+  quantity_sewn: number;
+  production_flow: ProductionFlow;
   notes: string | null;
   created_at: string;
   services: Array<{
@@ -100,6 +110,7 @@ export type OrderDetails = OrderSummary & {
   }>;
   production_events: Array<{
     id: number;
+    order_item_id: number | null;
     event_type: string;
     quantity: number | null;
     notes: string | null;

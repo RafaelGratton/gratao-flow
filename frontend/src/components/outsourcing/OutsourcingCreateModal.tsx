@@ -31,7 +31,6 @@ export function OutsourcingCreateModal({
   const [quantitySent, setQuantitySent] = useState("");
   const [customerUnitPrice, setCustomerUnitPrice] = useState("");
   const [outsourcerUnitPrice, setOutsourcerUnitPrice] = useState("");
-  const [flow, setFlow] = useState<"return" | "direct" | "">("return");
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +41,6 @@ export function OutsourcingCreateModal({
       setQuantitySent("");
       setCustomerUnitPrice("");
       setOutsourcerUnitPrice("");
-      setFlow("return");
       setNotes("");
       setError(null);
     }
@@ -68,9 +66,8 @@ export function OutsourcingCreateModal({
     if (quantity > availableQuantity) return `Quantidade disponivel: ${availableQuantity}.`;
     if (customer < 0 || payout < 0) return "Valores devem ser maiores ou iguais a zero.";
     if (payout > customer) return "O repasse nao pode ser maior que o valor cobrado.";
-    if (!flow) return "Escolha o fluxo da terceirização.";
     return null;
-  }, [availableQuantity, customerUnitPrice, flow, outsourcerUnitPrice, quantitySent]);
+  }, [availableQuantity, customerUnitPrice, outsourcerUnitPrice, quantitySent]);
 
   if (!open || !order) return null;
 
@@ -84,8 +81,8 @@ export function OutsourcingCreateModal({
         quantity_sent: Number(quantitySent),
         customer_unit_price: customerUnitPrice,
         outsourcer_unit_price: outsourcerUnitPrice,
-        return_expected: flow === "return",
-        direct_to_customer: flow === "direct",
+        return_expected: true,
+        direct_to_customer: false,
         notes: notes || null
       });
       onCreated(updated);
@@ -127,13 +124,9 @@ export function OutsourcingCreateModal({
             <Input label={`Quantidade enviada (disponivel: ${availableQuantity})`} type="number" min="1" max={availableQuantity} step="1" value={quantitySent} onChange={(event) => setQuantitySent(event.target.value)} />
             <Input label="Valor cobrado por peca" type="number" min="0" step="0.01" value={customerUnitPrice} onChange={(event) => setCustomerUnitPrice(event.target.value)} />
             <Input label="Repasse por peca" type="number" min="0" step="0.01" value={outsourcerUnitPrice} onChange={(event) => setOutsourcerUnitPrice(event.target.value)} />
-            <label className="block space-y-2">
-              <span className="text-sm font-semibold text-ink">Fluxo</span>
-              <select className="h-12 w-full rounded-md border border-line bg-white px-3 text-sm text-ink shadow-insetline transition focus:focus-ring" value={flow} onChange={(event) => setFlow(event.target.value as "return" | "direct" | "")}>
-                <option value="return">Retorna para malharia</option>
-                <option value="direct">Vai direto para cliente</option>
-              </select>
-            </label>
+            <div className="rounded-md border border-line bg-[#FCFAF6] p-3 text-sm font-semibold text-muted">
+              Fluxo: retorna para a Gratao antes da entrega ao cliente.
+            </div>
           </div>
           <label className="block space-y-2">
             <span className="text-sm font-semibold text-ink">Observacoes</span>

@@ -1,4 +1,4 @@
-import type { FinancialStatus, ProductionStatus } from "@/components/orders/types";
+import type { FinancialStatus, ProductionFlow, ProductionStatus } from "@/components/orders/types";
 
 export const productionLabels: Record<ProductionStatus, string> = {
   created: "Criada",
@@ -21,6 +21,13 @@ export const financialLabels: Record<FinancialStatus, string> = {
   pending: "Pendente",
   partial: "Parcial",
   paid: "Pago"
+};
+
+export const productionFlowLabels: Record<ProductionFlow, string> = {
+  deliver_after_cut: "Apenas cortar e entregar",
+  deliver_after_print: "Cortar + serigrafar e entregar",
+  internal_sewing: "Cortar + confeccionar internamente",
+  outsourced_sewing: "Cortar + terceirizar confecção"
 };
 
 export function productionTone(status: ProductionStatus) {

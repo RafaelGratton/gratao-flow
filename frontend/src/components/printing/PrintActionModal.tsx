@@ -2,13 +2,14 @@
 
 import { X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { OrderDetails } from "@/components/orders/types";
+import type { OrderDetails, OrderItem } from "@/components/orders/types";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { api } from "@/lib/api";
 
 type PrintActionModalProps = {
   order: OrderDetails | null;
+  item?: OrderItem | null;
   open: boolean;
   onClose: () => void;
   onUpdated: (order: OrderDetails) => void;
@@ -22,17 +23,19 @@ function normalize(value: string) {
     .trim();
 }
 
-export function PrintActionModal({ order, open, onClose, onUpdated }: PrintActionModalProps) {
+export function PrintActionModal({ order, item, open, onClose, onUpdated }: PrintActionModalProps) {
   const [quantity, setQuantity] = useState("");
   const [printType, setPrintType] = useState<"front" | "front_back">("front");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const productName = normalize(order?.product.name ?? "");
+  const productName = normalize(item?.product.name ?? order?.product.name ?? "");
   const onlyFront = productName === "casaco";
   const requiresException =
     productName.startsWith("cal") || productName === "short" || productName === "short saia";
-  const remaining = order ? Math.max(order.quantity_cut - order.quantity_printed, 0) : 0;
+  const quantityCut = item?.quantity_cut ?? order?.quantity_cut ?? 0;
+  const quantityPrinted = item?.quantity_printed ?? order?.quantity_printed ?? 0;
+  const remaining = Math.max(quantityCut - quantityPrinted, 0);
 
   useEffect(() => {
     if (open) {
@@ -64,7 +67,10 @@ export function PrintActionModal({ order, open, onClose, onUpdated }: PrintActio
     setError(null);
 
     try {
-      const updated = await api.post<OrderDetails>(`/orders/${order.id}/print`, {
+      const path = item
+        ? `/orders/${order.id}/items/${item.id}/print`
+        : `/orders/${order.id}/print`;
+      const updated = await api.post<OrderDetails>(path, {
         quantity: Number(quantity),
         print_type: printType
       });
@@ -83,7 +89,7 @@ export function PrintActionModal({ order, open, onClose, onUpdated }: PrintActio
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-accent-dark">
-              OS #{order.id}
+              OS #{order.id}{item ? ` - ${item.product.name} tamanho ${item.size.label}` : ""}
             </p>
             <h2 className="text-lg font-black text-ink">Registrar DTF</h2>
           </div>
@@ -109,11 +115,11 @@ export function PrintActionModal({ order, open, onClose, onUpdated }: PrintActio
           <div className="grid gap-3 rounded-md border border-line bg-[#FCFAF6] p-4 sm:grid-cols-3">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Cortada</p>
-              <p className="mt-1 text-xl font-black text-ink">{order.quantity_cut}</p>
+              <p className="mt-1 text-xl font-black text-ink">{quantityCut}</p>
             </div>
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">DTF</p>
-              <p className="mt-1 text-xl font-black text-ink">{order.quantity_printed}</p>
+              <p className="mt-1 text-xl font-black text-ink">{quantityPrinted}</p>
             </div>
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Restante</p>

@@ -5,12 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PaymentModal } from "@/components/orders/PaymentModal";
-import { ProductionActionModal } from "@/components/orders/ProductionActionModal";
 import { ProductionFlow } from "@/components/orders/ProductionFlow";
 import { OrderReportsCard } from "@/components/orders/reports/OrderReportsCard";
 import {
   financialLabels,
   financialTone,
+  productionFlowLabels,
   productionLabels,
   productionTone
 } from "@/components/orders/status";
@@ -33,7 +33,6 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [paymentOpen, setPaymentOpen] = useState(false);
-  const [productionAction, setProductionAction] = useState<"cut" | "print" | "sew" | null>(null);
   const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
@@ -188,6 +187,9 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
                         Tamanho {item.size.label} / {item.color || "Sem cor"} /{" "}
                         {item.quantity_requested} pecas
                       </p>
+                      <p className="mt-2 text-xs font-bold uppercase tracking-[0.12em] text-accent-dark">
+                        {productionFlowLabels[item.production_flow]}
+                      </p>
                     </div>
                     <p className="text-sm font-black text-ink">
                       {formatCurrency(
@@ -274,7 +276,7 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
           <p className="mt-1 text-sm text-muted">Corte, serigrafia e confecção com progresso por quantidade.</p>
         </CardHeader>
         <CardContent>
-          <ProductionFlow order={order} onAction={setProductionAction} />
+          <ProductionFlow order={order} />
         </CardContent>
       </Card>
 
@@ -282,13 +284,6 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
         orderId={order.id}
         open={paymentOpen}
         onClose={() => setPaymentOpen(false)}
-        onUpdated={setOrder}
-      />
-      <ProductionActionModal
-        order={order}
-        action={productionAction}
-        open={productionAction !== null}
-        onClose={() => setProductionAction(null)}
         onUpdated={setOrder}
       />
     </div>
