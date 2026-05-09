@@ -9,8 +9,8 @@ from app.models.enums import (
     PaymentMethod,
     PrintType,
     ProductionEventType,
-    ProductionFlow,
     ProductionStatus,
+    SewingMode,
 )
 from app.schemas.client import ClientRead
 from app.schemas.product import ProductRead
@@ -46,7 +46,7 @@ class OrderItemCreate(BaseModel):
     size_id: int
     color: str
     quantity_requested: int = Field(gt=0)
-    production_flow: ProductionFlow = ProductionFlow.INTERNAL_SEWING
+    sewing_mode: SewingMode | None = None
     notes: str | None = None
     service_ids: list[int] = Field(min_length=1)
 
@@ -87,7 +87,7 @@ class OrderCreate(BaseModel):
                 size_id=self.size_id or 0,
                 color=self.color or "",
                 quantity_requested=self.quantity_requested or 0,
-                production_flow=ProductionFlow.INTERNAL_SEWING,
+                sewing_mode=None,
                 notes=self.notes,
                 service_ids=self.service_ids or [],
             )
@@ -137,7 +137,7 @@ class OrderItemRead(BaseModel):
     quantity_cut: int
     quantity_printed: int
     quantity_sewn: int
-    production_flow: ProductionFlow
+    sewing_mode: SewingMode | None
     notes: str | None
     services: list[OrderItemServiceRead]
     created_at: datetime

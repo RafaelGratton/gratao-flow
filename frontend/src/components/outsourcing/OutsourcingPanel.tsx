@@ -8,6 +8,7 @@ import { OutsourcingCreateModal } from "@/components/outsourcing/OutsourcingCrea
 import { OutsourcingList } from "@/components/outsourcing/OutsourcingList";
 import { OutsourcingReturnModal } from "@/components/outsourcing/OutsourcingReturnModal";
 import { OutsourcerQuickCreateModal } from "@/components/outsourcing/OutsourcerQuickCreateModal";
+import { itemReadyForOutsourcing } from "@/components/production/helpers";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { api } from "@/lib/api";
@@ -72,6 +73,7 @@ export function OutsourcingPanel() {
       orders.filter(
         (order) =>
           ["cut_done", "print_done"].includes(order.production_status) &&
+          order.items.some(itemReadyForOutsourcing) &&
           !["delivered", "cancelled"].includes(order.production_status)
       ),
     [orders]

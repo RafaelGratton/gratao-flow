@@ -43,16 +43,17 @@ class OutsourcingCreate(BaseModel):
     quantity_sent: int = Field(gt=0)
     customer_unit_price: MoneyDecimal
     outsourcer_unit_price: MoneyDecimal
-    return_expected: bool
-    direct_to_customer: bool
+    return_expected: bool = True
+    direct_to_customer: bool = False
     notes: str | None = None
 
     @model_validator(mode="after")
     def validate_flow_and_prices(self) -> "OutsourcingCreate":
         if self.outsourcer_unit_price > self.customer_unit_price:
             raise ValueError("outsourcer_unit_price cannot be greater than customer_unit_price")
-        if self.return_expected == self.direct_to_customer:
-            raise ValueError("Choose exactly one flow: return_expected or direct_to_customer")
+        if self.direct_to_customer:
+            raise ValueError("Terceirizacao sempre retorna para a Gratao antes da entrega ao cliente")
+        self.return_expected = True
         return self
 
 

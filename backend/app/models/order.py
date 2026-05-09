@@ -10,8 +10,8 @@ from app.models.enums import (
     PaymentMethod,
     PrintType,
     ProductionEventType,
-    ProductionFlow,
     ProductionStatus,
+    SewingMode,
 )
 
 
@@ -140,14 +140,13 @@ class OrderItem(Base):
     quantity_cut: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     quantity_printed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     quantity_sewn: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    production_flow: Mapped[ProductionFlow] = mapped_column(
+    sewing_mode: Mapped[SewingMode | None] = mapped_column(
         Enum(
-            ProductionFlow,
-            name="production_flow",
+            SewingMode,
+            name="sewing_mode",
             values_callable=lambda enum_class: [item.value for item in enum_class],
         ),
-        default=ProductionFlow.INTERNAL_SEWING,
-        nullable=False,
+        nullable=True,
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

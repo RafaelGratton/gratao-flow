@@ -3,11 +3,11 @@
 import { ArrowRight, RefreshCw, Scissors, Shirt, Stamp } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { productionFlowLabels } from "@/components/orders/status";
 import type { OrderDetails, OrderItem, OrderSummary } from "@/components/orders/types";
 import { PrintActionModal } from "@/components/printing/PrintActionModal";
 import {
   flowStageOptions,
+  itemFlowLabel,
   itemNeedsStage,
   itemStageDone,
   missingCut,
@@ -80,7 +80,7 @@ export function ProductionPage() {
           order,
           item,
           itemNumber: index + 1,
-          stage: relevantStage(item)
+          stage: ["ready", "delivered"].includes(order.production_status) ? "done" : relevantStage(item)
         }))
       ),
     [orders]
@@ -270,7 +270,7 @@ function ProductionItemCard({
   onSew: () => void;
   onOutsource: () => void;
 }) {
-  const stages = flowStageOptions(item.production_flow);
+  const stages = flowStageOptions(item);
   return (
     <div className="grid gap-4 rounded-lg border border-line bg-white p-4 shadow-insetline xl:grid-cols-[1.1fr_1.35fr_auto] xl:items-center">
       <div className="min-w-0">
@@ -284,7 +284,7 @@ function ProductionItemCard({
           {item.color || "sem cor"}
         </p>
         <p className="mt-2 text-xs font-bold uppercase tracking-[0.12em] text-accent-dark">
-          {productionFlowLabels[item.production_flow]}
+          {itemFlowLabel(item)}
         </p>
       </div>
 
@@ -316,7 +316,15 @@ function ProductionItemCard({
           </Button>
         ) : null}
         {stages.includes("outsourcing") ? (
-          <Button type="button" variant="secondary" disabled={!itemStageDone(item, "cut")} onClick={onOutsource}>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={
+              (itemNeedsStage(item, "cut") && !itemStageDone(item, "cut")) ||
+              (itemNeedsStage(item, "print") && !itemStageDone(item, "print"))
+            }
+            onClick={onOutsource}
+          >
             <ArrowRight size={16} />
             Terceirizar
           </Button>

@@ -10,10 +10,10 @@ import { OrderReportsCard } from "@/components/orders/reports/OrderReportsCard";
 import {
   financialLabels,
   financialTone,
-  productionFlowLabels,
   productionLabels,
   productionTone
 } from "@/components/orders/status";
+import { itemFlowLabel } from "@/components/production/helpers";
 import type { OrderDetails as OrderDetailsType } from "@/components/orders/types";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
@@ -188,7 +188,7 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
                         {item.quantity_requested} pecas
                       </p>
                       <p className="mt-2 text-xs font-bold uppercase tracking-[0.12em] text-accent-dark">
-                        {productionFlowLabels[item.production_flow]}
+                        {itemFlowLabel(item)}
                       </p>
                     </div>
                     <p className="text-sm font-black text-ink">

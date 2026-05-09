@@ -1,4 +1,4 @@
-import type { OrderDetails, OrderItem, ProductionFlow } from "@/components/orders/types";
+import type { OrderDetails, OrderItem } from "@/components/orders/types";
 
 export type ProductionItemStage = "cut" | "print" | "sew" | "outsourcing";
 
@@ -10,11 +10,15 @@ export function getItemPrintingService(item: OrderItem) {
   return item.services.find((service) => service.service.type === "serigrafia");
 }
 
+export function itemHasService(item: OrderItem, type: "corte" | "serigrafia" | "confeccao") {
+  return item.services.some((service) => service.service.type === type);
+}
+
 export function itemNeedsStage(item: OrderItem, stage: "cut" | "print" | "sew" | "outsourcing") {
-  if (stage === "cut") return true;
-  if (stage === "print") return item.production_flow === "deliver_after_print";
-  if (stage === "sew") return item.production_flow === "internal_sewing";
-  return item.production_flow === "outsourced_sewing";
+  if (stage === "cut") return itemHasService(item, "corte");
+  if (stage === "print") return itemHasService(item, "serigrafia");
+  if (stage === "sew") return itemHasService(item, "confeccao") && item.sewing_mode === "internal";
+  return itemHasService(item, "confeccao") && item.sewing_mode === "outsourced";
 }
 
 export function itemStageDone(item: OrderItem, stage: "cut" | "print" | "sew") {
@@ -28,22 +32,37 @@ export function missingCut(item: OrderItem) {
 }
 
 export function relevantStage(item: OrderItem): "cut" | "print" | "sew" | "outsourcing" | "done" {
-  if (!itemStageDone(item, "cut")) return "cut";
-  if (item.production_flow === "deliver_after_cut") return "done";
-  if (item.production_flow === "deliver_after_print") {
-    return itemStageDone(item, "print") ? "done" : "print";
-  }
-  if (item.production_flow === "internal_sewing") {
-    return itemStageDone(item, "sew") ? "done" : "sew";
-  }
-  return "outsourcing";
+  if (itemNeedsStage(item, "cut") && !itemStageDone(item, "cut")) return "cut";
+  if (itemNeedsStage(item, "print") && !itemStageDone(item, "print")) return "print";
+  if (itemNeedsStage(item, "sew") && !itemStageDone(item, "sew")) return "sew";
+  if (itemNeedsStage(item, "outsourcing")) return "outsourcing";
+  return "done";
 }
 
-export function flowStageOptions(flow: ProductionFlow): ProductionItemStage[] {
-  if (flow === "deliver_after_cut") return ["cut"];
-  if (flow === "deliver_after_print") return ["cut", "print"];
-  if (flow === "internal_sewing") return ["cut", "sew"];
-  return ["cut", "outsourcing"];
+export function flowStageOptions(item: OrderItem): ProductionItemStage[] {
+  return [
+    itemNeedsStage(item, "cut") ? "cut" : null,
+    itemNeedsStage(item, "print") ? "print" : null,
+    itemNeedsStage(item, "sew") ? "sew" : null,
+    itemNeedsStage(item, "outsourcing") ? "outsourcing" : null
+  ].filter(Boolean) as ProductionItemStage[];
+}
+
+export function itemReadyForOutsourcing(item: OrderItem) {
+  if (!itemNeedsStage(item, "outsourcing")) return false;
+  if (itemNeedsStage(item, "cut") && !itemStageDone(item, "cut")) return false;
+  if (itemNeedsStage(item, "print") && !itemStageDone(item, "print")) return false;
+  return true;
+}
+
+export function itemFlowLabel(item: OrderItem) {
+  const stages = flowStageOptions(item).map((stage) => {
+    if (stage === "cut") return "Corte";
+    if (stage === "print") return "Serigrafia";
+    if (stage === "sew") return "Confeccao interna";
+    return "Terceirizacao";
+  });
+  return stages.length > 0 ? stages.join(" -> ") : "Sem etapas produtivas";
 }
 
 export function hasPrinting(order: OrderDetails) {

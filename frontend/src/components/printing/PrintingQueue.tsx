@@ -2,10 +2,9 @@
 
 import { CheckCircle2, Clock3, Layers3, PlayCircle, Stamp } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { productionFlowLabels } from "@/components/orders/status";
 import type { OrderDetails, OrderItem, OrderSummary } from "@/components/orders/types";
 import { PrintActionModal } from "@/components/printing/PrintActionModal";
-import { getItemPrintingService, itemStageDone } from "@/components/production/helpers";
+import { getItemPrintingService, itemFlowLabel, itemNeedsStage, itemStageDone } from "@/components/production/helpers";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
@@ -69,7 +68,7 @@ export function PrintingQueue() {
           .map((item, index) => ({ order, item, itemNumber: index + 1 }))
           .filter(
             (row) =>
-              row.item.production_flow === "deliver_after_print" &&
+              itemNeedsStage(row.item, "print") &&
               row.item.quantity_printed < row.item.quantity_requested
           )
       ),
@@ -154,7 +153,7 @@ export function PrintingQueue() {
               <EmptyState
                 icon={<Layers3 size={20} />}
                 title="Nenhum item aguardando DTF"
-                description="Itens com fluxo de corte + serigrafia aparecem nesta fila."
+                description="Itens com servico de serigrafia aparecem nesta fila."
               />
             </div>
           ) : (
@@ -184,7 +183,7 @@ export function PrintingQueue() {
                     <div className="space-y-2">
                       <p className="text-sm font-semibold text-ink">{printServiceLabel(row.item)}</p>
                       <p className="text-xs font-bold uppercase tracking-[0.12em] text-accent-dark">
-                        {productionFlowLabels[row.item.production_flow]}
+                        {itemFlowLabel(row.item)}
                       </p>
                     </div>
                     <Button

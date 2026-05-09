@@ -15,8 +15,8 @@ from app.models.enums import (
     OutsourcingStatus,
     PayoutStatus,
     ProductionEventType,
-    ProductionFlow,
     ProductionStatus,
+    SewingMode,
     StockMovementType,
     WeeklyClosingStatus,
 )
@@ -75,10 +75,10 @@ STATUS_ORDER = {
     ProductionStatus.WAITING_SEWING: 6,
     ProductionStatus.IN_SEWING: 7,
     ProductionStatus.SEWING_DONE: 8,
-    ProductionStatus.READY: 9,
-    ProductionStatus.DELIVERED: 10,
-    ProductionStatus.OUTSOURCED: 11,
-    ProductionStatus.RETURNED: 12,
+    ProductionStatus.OUTSOURCED: 9,
+    ProductionStatus.RETURNED: 10,
+    ProductionStatus.READY: 11,
+    ProductionStatus.DELIVERED: 12,
     ProductionStatus.CANCELLED: 13,
 }
 
@@ -120,7 +120,7 @@ def create_order(
             quantity_cut=0,
             quantity_printed=0,
             quantity_sewn=0,
-            production_flow=item_payload.production_flow,
+            sewing_mode=_normalized_sewing_mode(item_payload, services),
             notes=item_payload.notes,
         )
         order.items.append(order_item)
@@ -608,6 +608,7 @@ def register_outsourcing_return(
 
     if outsourcing.status == OutsourcingStatus.RETURNED:
         _change_status(db, order, ProductionStatus.RETURNED, payload.quantity_returned)
+        _change_status(db, order, ProductionStatus.READY, payload.quantity_returned)
 
     db.commit()
     return _get_order_or_404(db, order.id)
@@ -677,11 +678,32 @@ def _ensure_order_references_exist(
         if inactive_service_ids:
             raise HTTPException(status_code=400, detail="Inactive services are not allowed")
 
+        _validate_item_sewing_mode(item, services)
         items_with_services.append(
             (item, [services_by_id[service_id] for service_id in item.service_ids])
         )
 
     return items_with_services
+
+
+def _validate_item_sewing_mode(item: object, services: list[Service]) -> None:
+    has_sewing = any(service.type == "confeccao" for service in services)
+    sewing_mode = getattr(item, "sewing_mode", None)
+    if has_sewing:
+        return
+    if sewing_mode is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="sewing_mode so pode ser informado para itens com servico de Confeccao.",
+        )
+
+
+def _normalized_sewing_mode(item: object, services: list[Service]) -> SewingMode | None:
+    has_sewing = any(service.type == "confeccao" for service in services)
+    if not has_sewing:
+        return None
+    sewing_mode = getattr(item, "sewing_mode", None)
+    return sewing_mode or SewingMode.INTERNAL
 
 
 def _get_order_or_404(db: Session, order_id: int) -> Order:
@@ -793,7 +815,7 @@ def _validate_item_print_registration(
     item: OrderItem,
     payload: PrintRegister,
 ) -> None:
-    if item.production_flow != ProductionFlow.DELIVER_AFTER_PRINT:
+    if not _item_has_printing(item):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Serigrafia nao faz parte do fluxo deste item.",
@@ -814,12 +836,6 @@ def _validate_item_print_registration(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Quantidade estampada excede o solicitado para este item. Faltam estampar {remaining}.",
         )
-    if not _item_has_printing(item):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Este item nao possui servico de serigrafia.",
-        )
-
     product_name = _normalized_product_name(item.product.name)
     if product_name == "casaco" and payload.print_type != "front":
         raise HTTPException(
@@ -867,7 +883,7 @@ def _validate_sewing_registration(
 
 
 def _validate_item_sewing_registration(item: OrderItem, payload: SewingRegister) -> None:
-    if item.production_flow != ProductionFlow.INTERNAL_SEWING:
+    if not _item_has_sewing(item) or item.sewing_mode != SewingMode.INTERNAL:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Confeccao interna nao faz parte do fluxo deste item.",
@@ -877,7 +893,16 @@ def _validate_item_sewing_registration(item: OrderItem, payload: SewingRegister)
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Nao e possivel registrar confeccao antes do corte do item.",
         )
-    sewing_limit = min(item.quantity_cut, item.quantity_requested)
+    if _item_has_printing(item) and item.quantity_printed < item.quantity_requested:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nao e possivel registrar confeccao antes de concluir a serigrafia do item.",
+        )
+    sewing_limit = (
+        min(item.quantity_printed, item.quantity_requested)
+        if _item_has_printing(item)
+        else min(item.quantity_cut, item.quantity_requested)
+    )
     if item.quantity_sewn + payload.quantity > sewing_limit:
         remaining = sewing_limit - item.quantity_sewn
         raise HTTPException(
@@ -894,6 +919,11 @@ def _validate_outsourcing_stage(order: Order) -> None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Outsourcing is only allowed when production status is cut_done or print_done",
+        )
+    if not any(_item_is_ready_for_outsourcing(item) for item in order.items):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nenhum item desta OS esta pronto para terceirizacao.",
         )
 
 
@@ -968,6 +998,14 @@ def _item_has_printing(item: OrderItem) -> bool:
     )
 
 
+def _item_has_cut(item: OrderItem) -> bool:
+    return any(item_service.service.type == "corte" for item_service in item.services)
+
+
+def _item_has_sewing(item: OrderItem) -> bool:
+    return any(item_service.service.type == "confeccao" for item_service in item.services)
+
+
 def _sync_order_production_snapshot(
     db: Session,
     order: Order,
@@ -993,23 +1031,39 @@ def _derive_order_status_from_items(order: Order) -> ProductionStatus:
         return ProductionStatus.READY
     if any(item.quantity_sewn > 0 for item in order.items):
         return ProductionStatus.IN_SEWING
-    if any(item.quantity_printed > 0 for item in order.items):
+    print_items = [item for item in order.items if _item_has_printing(item)]
+    if print_items and all(item.quantity_printed >= item.quantity_requested for item in print_items):
+        return ProductionStatus.PRINT_DONE
+    if any(item.quantity_printed > 0 for item in print_items):
         return ProductionStatus.IN_PRINT
-    if all(item.quantity_cut >= item.quantity_requested for item in order.items):
+    cut_items = [item for item in order.items if _item_has_cut(item)]
+    if cut_items and all(item.quantity_cut >= item.quantity_requested for item in cut_items):
         return ProductionStatus.CUT_DONE
-    if any(item.quantity_cut > 0 for item in order.items):
+    if any(item.quantity_cut > 0 for item in cut_items):
         return ProductionStatus.IN_CUT
     return ProductionStatus.CREATED
 
 
 def _item_is_complete(item: OrderItem) -> bool:
-    if item.production_flow == ProductionFlow.DELIVER_AFTER_CUT:
-        return item.quantity_cut >= item.quantity_requested
-    if item.production_flow == ProductionFlow.DELIVER_AFTER_PRINT:
-        return item.quantity_printed >= item.quantity_requested
-    if item.production_flow == ProductionFlow.INTERNAL_SEWING:
+    if _item_has_sewing(item):
+        if item.sewing_mode == SewingMode.OUTSOURCED:
+            return False
         return item.quantity_sewn >= item.quantity_requested
-    return False
+    if _item_has_printing(item):
+        return item.quantity_printed >= item.quantity_requested
+    if _item_has_cut(item):
+        return item.quantity_cut >= item.quantity_requested
+    return True
+
+
+def _item_is_ready_for_outsourcing(item: OrderItem) -> bool:
+    if not _item_has_sewing(item) or item.sewing_mode != SewingMode.OUTSOURCED:
+        return False
+    if _item_has_cut(item) and item.quantity_cut < item.quantity_requested:
+        return False
+    if _item_has_printing(item) and item.quantity_printed < item.quantity_requested:
+        return False
+    return True
 
 
 def _can_advance_status(

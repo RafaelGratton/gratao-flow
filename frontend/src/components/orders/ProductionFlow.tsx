@@ -1,9 +1,8 @@
 "use client";
 
 import { CheckCircle2, Scissors, Shirt, Stamp, Truck } from "lucide-react";
-import { productionFlowLabels } from "@/components/orders/status";
 import type { OrderDetails, OrderItem } from "@/components/orders/types";
-import { flowStageOptions, itemStageDone, missingCut } from "@/components/production/helpers";
+import { flowStageOptions, itemFlowLabel, itemStageDone, missingCut } from "@/components/production/helpers";
 import { cn } from "@/lib/utils";
 
 type ProductionFlowProps = {
@@ -23,7 +22,7 @@ export function ProductionFlow({ order }: ProductionFlowProps) {
               <h3 className="mt-1 text-base font-black text-ink">
                 {item.product.name} tamanho {item.size.label}
               </h3>
-              <p className="mt-1 text-sm font-semibold text-muted">{productionFlowLabels[item.production_flow]}</p>
+              <p className="mt-1 text-sm font-semibold text-muted">{itemFlowLabel(item)}</p>
             </div>
             <p className="text-sm font-black text-ink">{item.quantity_requested} pecas</p>
           </div>
@@ -39,7 +38,7 @@ export function ProductionFlow({ order }: ProductionFlowProps) {
           </div>
 
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {flowStageOptions(item.production_flow).map((stage) => (
+            {flowStageOptions(item).map((stage) => (
               <Stage key={stage} item={item} stage={stage} />
             ))}
           </div>
