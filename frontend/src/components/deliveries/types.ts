@@ -19,8 +19,10 @@ export type DeliveryItem = {
   size: { id: number; label: string };
   color: string;
   quantity_requested: number;
+  quantity_ready: number;
   quantity_delivered: number;
   quantity_remaining: number;
+  quantity_pending_production: number;
   delivery_status: DeliveryStatus;
   delivered_at: string | null;
   history: DeliveryHistory[];

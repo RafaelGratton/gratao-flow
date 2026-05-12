@@ -745,7 +745,6 @@ def _apply_safe_order_update(order: Order, payload: OrderUpdate) -> None:
         if (
             item_payload.product_id != item.product_id
             or item_payload.size_id != item.size_id
-            or item_payload.quantity_requested != item.quantity_requested
             or item_payload.sewing_mode != item.sewing_mode
             or item_payload.service_ids != current_service_ids
         ):
@@ -753,9 +752,18 @@ def _apply_safe_order_update(order: Order, payload: OrderUpdate) -> None:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
                     "Esta OS ja possui movimentacoes. Campos de produto, tamanho, "
-                    "quantidade, servicos e producao final nao podem ser alterados."
+                    "servicos e producao final nao podem ser alterados."
                 ),
             )
+        movement_floor = _item_quantity_movement_floor(order, item)
+        if item_payload.quantity_requested < movement_floor:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Nao e possivel reduzir a quantidade abaixo do que ja foi produzido/entregue."
+                ),
+            )
+        item.quantity_requested = item_payload.quantity_requested
         item.color = item_payload.color
         item.notes = item_payload.notes
 
@@ -764,6 +772,28 @@ def _apply_safe_order_update(order: Order, payload: OrderUpdate) -> None:
     order.size_id = first_item.size_id
     order.color = first_item.color
     order.notes = payload.notes
+    _sync_order_totals(order)
+
+
+def _item_quantity_movement_floor(order: Order, item: OrderItem) -> int:
+    returned_outsourced = sum(
+        outsourcing.quantity_returned
+        for outsourcing in order.outsourcings
+        if outsourcing.order_item_id == item.id and outsourcing.status != OutsourcingStatus.CANCELLED
+    )
+    sent_outsourced = sum(
+        outsourcing.quantity_sent
+        for outsourcing in order.outsourcings
+        if outsourcing.order_item_id == item.id and outsourcing.status != OutsourcingStatus.CANCELLED
+    )
+    return max(
+        item.quantity_cut,
+        item.quantity_printed,
+        item.quantity_sewn,
+        item.quantity_delivered,
+        returned_outsourced,
+        sent_outsourced,
+    )
 
 
 def _replace_order_items(
