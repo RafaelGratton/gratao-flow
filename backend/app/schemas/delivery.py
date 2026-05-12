@@ -29,8 +29,10 @@ class DeliveryItemRead(BaseModel):
     size: SizeRead
     color: str
     quantity_requested: int
+    quantity_ready: int
     quantity_delivered: int
     quantity_remaining: int
+    quantity_pending_production: int
     delivery_status: DeliveryStatus
     delivered_at: datetime | None
     history: list[DeliveryHistoryRead]

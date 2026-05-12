@@ -268,10 +268,12 @@ function DeliveryRow({ item, onRegister }: { item: DeliveryItem; onRegister: () 
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 rounded-md border border-line bg-[#FCFAF6] p-3">
+      <div className="grid grid-cols-5 gap-3 rounded-md border border-line bg-[#FCFAF6] p-3">
         <Metric label="Solicitado" value={item.quantity_requested} />
+        <Metric label="Pronto" value={item.quantity_ready} />
         <Metric label="Entregue" value={item.quantity_delivered} />
-        <Metric label="Faltam" value={item.quantity_remaining} />
+        <Metric label="Falta entregar" value={item.quantity_remaining} />
+        <Metric label="Falta produzir" value={item.quantity_pending_production} />
       </div>
 
       <div className="space-y-2">
@@ -333,8 +335,8 @@ function DeliveryModal({
       onError("Informe uma quantidade entregue valida.");
       return;
     }
-    if (parsedQuantity > item.quantity_remaining) {
-      onError(`Quantidade entregue excede o solicitado. Faltam entregar ${item.quantity_remaining}.`);
+    if (parsedQuantity > item.quantity_ready) {
+      onError(`Quantidade entregue excede o disponivel agora. Maximo: ${item.quantity_ready}.`);
       return;
     }
 
@@ -370,10 +372,12 @@ function DeliveryModal({
         </div>
 
         <div className="space-y-4 p-5">
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-5">
             <Metric label="Solicitado" value={item.quantity_requested} />
+            <Metric label="Pronto" value={item.quantity_ready} />
             <Metric label="Entregue" value={item.quantity_delivered} />
-            <Metric label="Faltam" value={item.quantity_remaining} />
+            <Metric label="Falta entregar" value={item.quantity_remaining} />
+            <Metric label="Falta produzir" value={item.quantity_pending_production} />
           </div>
 
           <label className="block space-y-2">
@@ -382,7 +386,7 @@ function DeliveryModal({
               className="h-12 w-full rounded-md border border-line bg-white px-3 text-sm text-ink shadow-insetline transition focus:focus-ring"
               type="number"
               min="1"
-              max={item.quantity_remaining}
+              max={item.quantity_ready}
               value={quantity}
               onChange={(event) => setQuantity(event.target.value)}
               required

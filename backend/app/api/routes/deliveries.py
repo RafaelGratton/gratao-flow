@@ -17,6 +17,7 @@ from app.schemas.delivery import (
     DeliverySummary,
 )
 from app.services.deliveries import (
+    available_to_deliver,
     calculate_item_delivery_status,
     sync_item_delivery_status,
     sync_order_items_delivery_status,
@@ -83,11 +84,11 @@ def register_delivery(
             detail="Este item ainda nao esta pronto para entrega.",
         )
 
-    remaining = item.quantity_requested - item.quantity_delivered
-    if payload.quantity > remaining:
+    available_now = available_to_deliver(item, order)
+    if payload.quantity > available_now:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Quantidade entregue excede o solicitado. Faltam entregar {remaining}.",
+            detail=f"Quantidade entregue excede o disponivel para entrega agora ({available_now}).",
         )
 
     item.quantity_delivered += payload.quantity
@@ -165,6 +166,7 @@ def _build_delivery_item(
     item: OrderItem,
     delivery_status: DeliveryStatus | None = None,
 ) -> DeliveryItemRead:
+    quantity_ready = available_to_deliver(item, order)
     return DeliveryItemRead(
         order_id=order.id,
         order_item_id=item.id,
@@ -173,8 +175,10 @@ def _build_delivery_item(
         size=item.size,
         color=item.color,
         quantity_requested=item.quantity_requested,
+        quantity_ready=quantity_ready,
         quantity_delivered=item.quantity_delivered,
         quantity_remaining=max(item.quantity_requested - item.quantity_delivered, 0),
+        quantity_pending_production=max(item.quantity_requested - item.quantity_delivered - quantity_ready, 0),
         delivery_status=delivery_status or item.delivery_status,
         delivered_at=item.delivered_at,
         history=list(item.delivery_history),

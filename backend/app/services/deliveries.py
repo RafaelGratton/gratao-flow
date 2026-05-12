@@ -27,18 +27,24 @@ def sync_order_items_delivery_status(order: Order) -> None:
 
 
 def item_is_ready_for_delivery(item: OrderItem, order: Order) -> bool:
+    return available_to_deliver(item, order) > 0
+
+
+def available_to_deliver(item: OrderItem, order: Order) -> int:
     if item.sewing_mode == SewingMode.OUTSOURCED:
-        return _outsourced_item_returned(item, order)
-    if _item_has_service(item, "confeccao"):
-        return item.quantity_sewn >= item.quantity_requested
-    if _item_has_service(item, "serigrafia"):
-        return item.quantity_printed >= item.quantity_requested
-    if _item_has_service(item, "corte"):
-        return item.quantity_cut >= item.quantity_requested
-    return True
+        ready_quantity = _outsourced_returned_quantity(item, order)
+    elif _item_has_service(item, "confeccao"):
+        ready_quantity = item.quantity_sewn
+    elif _item_has_service(item, "serigrafia"):
+        ready_quantity = item.quantity_printed
+    elif _item_has_service(item, "corte"):
+        ready_quantity = item.quantity_cut
+    else:
+        ready_quantity = item.quantity_requested
+    return max(ready_quantity - item.quantity_delivered, 0)
 
 
-def _outsourced_item_returned(item: OrderItem, order: Order) -> bool:
+def _outsourced_returned_quantity(item: OrderItem, order: Order) -> int:
     active_outsourcings = [
         outsourcing
         for outsourcing in order.outsourcings
@@ -46,11 +52,8 @@ def _outsourced_item_returned(item: OrderItem, order: Order) -> bool:
         and outsourcing.status != OutsourcingStatus.CANCELLED
     ]
     if not active_outsourcings:
-        return False
-    returned_quantity = sum(outsourcing.quantity_returned for outsourcing in active_outsourcings)
-    return returned_quantity >= item.quantity_requested and all(
-        outsourcing.status == OutsourcingStatus.RETURNED for outsourcing in active_outsourcings
-    )
+        return 0
+    return sum(outsourcing.quantity_returned for outsourcing in active_outsourcings)
 
 
 def _item_has_service(item: OrderItem, service_type: str) -> bool:

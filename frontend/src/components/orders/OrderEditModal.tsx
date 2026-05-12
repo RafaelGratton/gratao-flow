@@ -250,6 +250,11 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
                 Esta OS ja possui movimentacoes. Apenas campos seguros podem ser alterados.
               </div>
             ) : null}
+            {locked ? (
+              <div className="rounded-md border border-accent/20 bg-accent-soft/40 p-4 text-sm font-semibold text-ink">
+                Voce pode aumentar a quantidade do pedido. Reducoes abaixo do que ja foi produzido nao sao permitidas.
+              </div>
+            ) : null}
             {error ? (
               <div className="rounded-md border border-danger/20 bg-danger/10 p-4 text-sm font-semibold text-danger">
                 {error}
@@ -304,6 +309,7 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
 
               {items.map((item, index) => {
                 const dangerDisabled = loading || saving || locked;
+                const quantityFloor = movementFloor(order, item);
                 const outsourced = item.sewing_mode === "outsourced";
                 return (
                   <div key={item.id ?? `new-${index}`} className="rounded-lg border border-line bg-[#FCFAF6] p-4">
@@ -365,12 +371,12 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
                       <Input
                         label="Quantidade"
                         type="number"
-                        min={1}
+                        min={locked ? quantityFloor : 1}
                         value={item.quantity_requested}
                         onChange={(event) =>
                           updateItem(index, { quantity_requested: Number(event.target.value) })
                         }
-                        disabled={dangerDisabled}
+                        disabled={loading || saving}
                       />
                     </div>
 
@@ -514,6 +520,24 @@ function orderHasMovements(order: OrderDetails): boolean {
         item.quantity_delivered > 0 ||
         item.delivered_at !== null
     )
+  );
+}
+
+function movementFloor(order: OrderDetails, item: EditItem): number {
+  const snapshotItem = item.id ? order.items.find((orderItem) => orderItem.id === item.id) : null;
+  if (!snapshotItem) return 1;
+  const outsourcedMax = order.outsourcings
+    .filter((outsourcing) => outsourcing.order_item_id === snapshotItem.id)
+    .reduce(
+      (max, outsourcing) => Math.max(max, outsourcing.quantity_sent, outsourcing.quantity_returned),
+      0
+    );
+  return Math.max(
+    snapshotItem.quantity_cut,
+    snapshotItem.quantity_printed,
+    snapshotItem.quantity_sewn,
+    snapshotItem.quantity_delivered,
+    outsourcedMax
   );
 }
 
