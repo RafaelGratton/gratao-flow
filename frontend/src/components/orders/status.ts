@@ -2,6 +2,9 @@ import type { FinancialStatus, ProductionStatus } from "@/components/orders/type
 
 export const productionLabels: Record<ProductionStatus, string> = {
   created: "Criada",
+  in_progress: "Em producao",
+  partial_ready: "Parcialmente pronta",
+  mixed: "Itens em etapas diferentes",
   in_cut: "Em corte",
   cut_done: "Corte concluído",
   waiting_print: "Aguardando serigrafia",
@@ -26,6 +29,8 @@ export const financialLabels: Record<FinancialStatus, string> = {
 export function productionTone(status: ProductionStatus) {
   if (status === "cancelled") return "danger";
   if (["ready", "delivered", "sewing_done"].includes(status)) return "done";
+  if (status === "partial_ready") return "warning";
+  if (["in_progress", "mixed"].includes(status)) return "active";
   if (status.startsWith("in_")) return "active";
   if (status.startsWith("waiting_")) return "warning";
   return "idle";

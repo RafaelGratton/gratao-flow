@@ -1,4 +1,4 @@
-import { CalendarCheck2, CalendarClock, ClipboardCheck, TrendingUp } from "lucide-react";
+import { Banknote, CalendarCheck2, CalendarClock, ClipboardCheck } from "lucide-react";
 import { StatCard } from "@/components/dashboard/StatCard";
 import type { WeeklyClosing } from "@/components/weekly-closings/types";
 import { formatCurrency } from "@/lib/format";
@@ -19,7 +19,8 @@ function period(closing?: WeeklyClosing) {
 
 export function WeeklyClosingSummaryCards({ closings }: Props) {
   const closed = closings.filter((closing) => closing.status === "closed").length;
-  const gross = closings.reduce((total, closing) => total + money(closing.gross_result), 0);
+  const paid = closings.filter((closing) => closing.status === "paid").length;
+  const payable = closings.reduce((total, closing) => total + money(closing.total_payable), 0);
   const latest = [...closings].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
 
   return (
@@ -27,26 +28,26 @@ export function WeeklyClosingSummaryCards({ closings }: Props) {
       <StatCard
         label="Fechamentos criados"
         value={closings.length}
-        detail="Periodos consolidados no sistema."
+        detail="Semanas individuais no sistema."
         icon={<CalendarClock size={20} />}
       />
       <StatCard
-        label="Fechamentos fechados"
+        label="Fechados"
         value={closed}
-        detail="Semanas bloqueadas para alteracoes."
+        detail="Conferidos e aguardando pagamento."
         icon={<ClipboardCheck size={20} />}
       />
       <StatCard
-        label="Ultimo fechamento"
-        value={period(latest)}
-        detail="Fechamento criado mais recentemente."
+        label="Pagos"
+        value={paid}
+        detail="Fechamentos ja quitados."
         icon={<CalendarCheck2 size={20} />}
       />
       <StatCard
-        label="Resultado bruto acumulado"
-        value={formatCurrency(gross)}
-        detail="Recebido mais lucro, menos repasses pagos."
-        icon={<TrendingUp size={20} />}
+        label="Total a pagar"
+        value={formatCurrency(payable)}
+        detail={`Ultimo: ${period(latest)}`}
+        icon={<Banknote size={20} />}
       />
     </div>
   );

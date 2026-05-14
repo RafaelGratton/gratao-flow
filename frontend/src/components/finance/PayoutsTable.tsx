@@ -93,7 +93,7 @@ export function PayoutsTable({ rows, loading, onPaid, onError }: Props) {
                       <td className="border-b border-line/70 px-4 py-4 text-muted">
                         {row.outsourcing.outsourcer?.name ?? "Sem terceirizado"}
                       </td>
-                      <td className="border-b border-line/70 px-4 py-4 text-muted">{row.order.product.name}</td>
+                      <td className="border-b border-line/70 px-4 py-4 text-muted">{outsourcingItemName(row)}</td>
                       <td className="border-b border-line/70 px-4 py-4 font-bold text-ink">
                         {row.outsourcing.quantity_sent}
                       </td>
@@ -129,4 +129,9 @@ export function PayoutsTable({ rows, loading, onPaid, onError }: Props) {
       </CardContent>
     </Card>
   );
+}
+
+function outsourcingItemName(row: PayoutRow) {
+  const item = row.order.items.find((orderItem) => orderItem.id === row.outsourcing.order_item_id);
+  return item?.product.name ?? "-";
 }

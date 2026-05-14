@@ -76,7 +76,7 @@ export function OutsourcingList({ items, loading, onReturn, onPaid, onError }: P
                         {order.client.name} / {outsourcing.outsourcer?.name ?? "Sem terceirizado definido"}
                       </p>
                       <p className="mt-2 text-sm text-muted">
-                        <span className="font-bold text-ink">{item?.product.name ?? order.product.name}</span>
+                        <span className="font-bold text-ink">{item?.product.name ?? "Item nao identificado"}</span>
                         {" / "}
                         {item ? `${item.size.label} / ${item.color} / ` : ""}
                         enviado {outsourcing.quantity_sent} / retornado {outsourcing.quantity_returned}

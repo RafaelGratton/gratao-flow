@@ -24,6 +24,21 @@ export type ReportService = {
   total_price: string;
 };
 
+export type ReportItem = {
+  id: number;
+  product: ReportProduct;
+  size: ReportSize;
+  color: string;
+  quantity_requested: number;
+  quantity_cut: number;
+  quantity_printed: number;
+  quantity_sewn: number;
+  quantity_delivered: number;
+  delivery_status: string;
+  sewing_mode: string | null;
+  services: ReportService[];
+};
+
 export type InternalReportPayment = {
   amount: string;
   payment_method: string;
@@ -38,6 +53,7 @@ export type ClientReportPayment = {
 };
 
 export type InternalReportProductionEvent = {
+  order_item_id: number | null;
   event_type: string;
   quantity: number | null;
   notes: string | null;
@@ -47,6 +63,7 @@ export type InternalReportProductionEvent = {
 };
 
 export type InternalReportOutsourcing = {
+  order_item_id: number | null;
   outsourcer: string | null;
   quantity_sent: number;
   quantity_returned: number;
@@ -62,15 +79,12 @@ export type InternalReportOutsourcing = {
 export type InternalOrderReport = {
   order_id: number;
   client: ReportClient;
-  product: ReportProduct;
-  size: ReportSize;
-  color: string;
   quantity_requested: number;
   quantity_cut: number;
   quantity_printed: number;
   quantity_sewn: number;
   quantity_extra: number;
-  services: ReportService[];
+  items: ReportItem[];
   total_amount: string;
   amount_paid: string;
   amount_due: string;
@@ -84,11 +98,8 @@ export type InternalOrderReport = {
 export type ClientOrderReport = {
   client: ReportClient;
   order_id: number;
-  product: ReportProduct;
-  size: ReportSize;
-  color: string;
   quantity: number;
-  services: ReportService[];
+  items: ReportItem[];
   total_amount: string;
   payments: ClientReportPayment[];
   amount_paid: string;

@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { MoneySummary, PaymentsList, ReportField, ReportGrid, ReportSection, ServicesList } from "./ReportSections";
+import { MoneySummary, PaymentsList, ReportField, ReportGrid, ReportItemsList, ReportSection } from "./ReportSections";
 import { ReportModalShell } from "./ReportModalShell";
 import type { ClientOrderReport } from "./types";
 
@@ -40,15 +40,12 @@ export function ClientReportModal({ open, report, loading, error, onClose }: Cli
             <ReportGrid>
               <ReportField label="Cliente" value={report.client.name} />
               <ReportField label="OS" value={`#${report.order_id}`} />
-              <ReportField label="Produto" value={report.product.name} />
-              <ReportField label="Tamanho" value={report.size.label} />
-              <ReportField label="Cor" value={report.color} />
               <ReportField label="Quantidade" value={report.quantity} />
             </ReportGrid>
           </ReportSection>
 
           <ReportSection title="Serviços">
-            <ServicesList services={report.services} />
+            <ReportItemsList items={report.items} />
           </ReportSection>
 
           <ReportSection title="Resumo financeiro">

@@ -16,6 +16,7 @@ export function EmployeesPage() {
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [employeeModalOpen, setEmployeeModalOpen] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [workLogEmployee, setWorkLogEmployee] = useState<Employee | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [payingId, setPayingId] = useState<number | null>(null);
@@ -31,7 +32,7 @@ export function EmployeesPage() {
       setEmployees(employeeList);
       setWorkLogs(logList);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Não foi possível carregar funcionários.");
+      setError(requestError instanceof Error ? requestError.message : "Nao foi possivel carregar funcionarios.");
     } finally {
       setLoading(false);
     }
@@ -49,9 +50,9 @@ export function EmployeesPage() {
     [selectedEmployee, workLogs]
   );
 
-  function handleEmployeeCreated(employee: Employee) {
+  function handleEmployeeSaved(employee: Employee) {
     setEmployees((current) => [employee, ...current.filter((item) => item.id !== employee.id)]);
-    setFeedback("Funcionario criado com sucesso.");
+    setFeedback(editingEmployee ? "Funcionario atualizado com sucesso." : "Funcionario criado com sucesso.");
   }
 
   function handleWorkLogCreated(workLog: WorkLog) {
@@ -60,7 +61,7 @@ export function EmployeesPage() {
   }
 
   async function handlePay(workLog: WorkLog) {
-    if (workLog.payment_status === "paid") return;
+    if (workLog.payment_status === "paid" || workLog.weekly_closing_id !== null) return;
     setPayingId(workLog.id);
     setError(null);
     try {
@@ -77,9 +78,9 @@ export function EmployeesPage() {
   return (
     <div className="space-y-5">
       <div>
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent-dark">Gratão Flow</p>
-        <h1 className="mt-1 text-3xl font-black text-ink">Funcionários</h1>
-        <p className="mt-2 text-sm leading-6 text-muted">Diarias, presenca e pagamentos</p>
+        <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent-dark">Gratao Flow</p>
+        <h1 className="mt-1 text-3xl font-black text-ink">Funcionarios</h1>
+        <p className="mt-2 text-sm leading-6 text-muted">Diarias, ponto diario e horas extras</p>
       </div>
 
       {feedback ? (
@@ -97,7 +98,14 @@ export function EmployeesPage() {
       <EmployeeTable
         employees={employees}
         loading={loading}
-        onCreate={() => setEmployeeModalOpen(true)}
+        onCreate={() => {
+          setEditingEmployee(null);
+          setEmployeeModalOpen(true);
+        }}
+        onEdit={(employee) => {
+          setEditingEmployee(employee);
+          setEmployeeModalOpen(true);
+        }}
         onRegisterDay={setWorkLogEmployee}
         onViewLogs={setSelectedEmployee}
       />
@@ -113,8 +121,12 @@ export function EmployeesPage() {
 
       <EmployeeModal
         open={employeeModalOpen}
-        onClose={() => setEmployeeModalOpen(false)}
-        onCreated={handleEmployeeCreated}
+        employee={editingEmployee}
+        onClose={() => {
+          setEmployeeModalOpen(false);
+          setEditingEmployee(null);
+        }}
+        onSaved={handleEmployeeSaved}
       />
       <WorkLogModal
         employee={workLogEmployee}

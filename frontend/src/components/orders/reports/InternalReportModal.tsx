@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { financialLabels, productionLabels } from "@/components/orders/status";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { MoneySummary, PaymentsList, ReportField, ReportGrid, ReportSection, ServicesList } from "./ReportSections";
+import { MoneySummary, PaymentsList, ReportField, ReportGrid, ReportItemsList, ReportSection } from "./ReportSections";
 import { ReportModalShell } from "./ReportModalShell";
 import type { InternalOrderReport } from "./types";
 
@@ -33,9 +33,6 @@ export function InternalReportModal({ open, report, loading, error, onClose }: I
               <ReportField label="OS" value={`#${report.order_id}`} />
               <ReportField label="Cliente" value={report.client.name} />
               <ReportField label="Telefone" value={report.client.phone || "Não informado"} />
-              <ReportField label="Produto" value={report.product.name} />
-              <ReportField label="Tamanho" value={report.size.label} />
-              <ReportField label="Cor" value={report.color} />
               <ReportField label="Produção" value={productionLabels[report.production_status]} />
               <ReportField label="Financeiro" value={financialLabels[report.financial_status]} />
             </ReportGrid>
@@ -52,7 +49,7 @@ export function InternalReportModal({ open, report, loading, error, onClose }: I
           </ReportSection>
 
           <ReportSection title="Serviços">
-            <ServicesList services={report.services} />
+            <ReportItemsList items={report.items} />
           </ReportSection>
 
           <ReportSection title="Pagamentos">
@@ -73,6 +70,7 @@ export function InternalReportModal({ open, report, loading, error, onClose }: I
                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge tone="accent">{event.event_type}</Badge>
+                        {event.order_item_id ? <span className="text-sm font-semibold text-muted">Item #{event.order_item_id}</span> : null}
                         {event.quantity !== null ? <span className="text-sm font-semibold text-muted">Qtd. {event.quantity}</span> : null}
                       </div>
                       <span className="text-sm font-semibold text-muted">{formatDateTime(event.created_at)}</span>
@@ -94,6 +92,7 @@ export function InternalReportModal({ open, report, loading, error, onClose }: I
                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <p className="font-black text-ink">{outsourcing.outsourcer ?? "Sem terceirizado"}</p>
                       <div className="flex flex-wrap gap-2">
+                        {outsourcing.order_item_id ? <Badge tone="accent">Item #{outsourcing.order_item_id}</Badge> : null}
                         <Badge>{outsourcing.status}</Badge>
                         <Badge tone={outsourcing.payout_status === "paid" ? "success" : "warning"}>
                           Repasse {outsourcing.payout_status}

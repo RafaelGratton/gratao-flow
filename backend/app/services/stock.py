@@ -115,24 +115,24 @@ def adjust_stock_quantity(
     return movement
 
 
-def get_or_create_piece_stock_item_for_order(db: Session, order) -> StockItem:
+def get_or_create_piece_stock_item_for_order_item(db: Session, order_item) -> StockItem:
     item = db.scalar(
         select(StockItem).where(
             StockItem.category == StockCategory.PIECE,
-            StockItem.product_id == order.product_id,
-            StockItem.size_id == order.size_id,
-            StockItem.color == order.color,
+            StockItem.product_id == order_item.product_id,
+            StockItem.size_id == order_item.size_id,
+            StockItem.color == order_item.color,
         )
     )
     if item is not None:
         return item
 
     item = StockItem(
-        name=f"{order.product.name} {order.size.label} {order.color}",
+        name=f"{order_item.product.name} {order_item.size.label} {order_item.color}",
         category=StockCategory.PIECE,
-        product_id=order.product_id,
-        size_id=order.size_id,
-        color=order.color,
+        product_id=order_item.product_id,
+        size_id=order_item.size_id,
+        color=order_item.color,
         unit="unidade",
         quantity=Decimal("0.00"),
         is_active=True,
@@ -140,6 +140,10 @@ def get_or_create_piece_stock_item_for_order(db: Session, order) -> StockItem:
     db.add(item)
     db.flush()
     return item
+
+
+def get_or_create_piece_stock_item_for_order(db: Session, order) -> StockItem:
+    return get_or_create_piece_stock_item_for_order_item(db, order)
 
 
 def _validate_stock_item_references(

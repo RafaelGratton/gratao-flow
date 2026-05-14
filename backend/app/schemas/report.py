@@ -5,12 +5,14 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from app.models.enums import (
+    DeliveryStatus,
     FinancialStatus,
     OutsourcingStatus,
     PayoutStatus,
     PaymentMethod,
     ProductionEventType,
     ProductionStatus,
+    SewingMode,
 )
 
 MoneyDecimal = Annotated[
@@ -53,6 +55,21 @@ class ReportService(BaseModel):
         return f"{value:.2f}"
 
 
+class ReportItem(BaseModel):
+    id: int
+    product: ReportProduct
+    size: ReportSize
+    color: str
+    quantity_requested: int
+    quantity_cut: int
+    quantity_printed: int
+    quantity_sewn: int
+    quantity_delivered: int
+    delivery_status: DeliveryStatus
+    sewing_mode: SewingMode | None
+    services: list[ReportService]
+
+
 class InternalReportPayment(BaseModel):
     amount: MoneyDecimal
     payment_method: PaymentMethod
@@ -75,6 +92,7 @@ class ClientReportPayment(BaseModel):
 
 
 class InternalReportProductionEvent(BaseModel):
+    order_item_id: int | None
     event_type: ProductionEventType
     quantity: int | None
     notes: str | None
@@ -84,6 +102,7 @@ class InternalReportProductionEvent(BaseModel):
 
 
 class InternalReportOutsourcing(BaseModel):
+    order_item_id: int | None
     outsourcer: str | None
     quantity_sent: int
     quantity_returned: int
@@ -109,15 +128,12 @@ class InternalReportOutsourcing(BaseModel):
 class InternalOrderReport(BaseModel):
     order_id: int
     client: ReportClient
-    product: ReportProduct
-    size: ReportSize
-    color: str
     quantity_requested: int
     quantity_cut: int
     quantity_printed: int
     quantity_sewn: int
     quantity_extra: int
-    services: list[ReportService]
+    items: list[ReportItem]
     total_amount: MoneyDecimal
     amount_paid: MoneyDecimal
     amount_due: MoneyDecimal
@@ -135,11 +151,8 @@ class InternalOrderReport(BaseModel):
 class ClientOrderReport(BaseModel):
     client: ReportClient
     order_id: int
-    product: ReportProduct
-    size: ReportSize
-    color: str
     quantity: int
-    services: list[ReportService]
+    items: list[ReportItem]
     total_amount: MoneyDecimal
     payments: list[ClientReportPayment]
     amount_paid: MoneyDecimal

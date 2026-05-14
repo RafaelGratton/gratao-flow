@@ -4,7 +4,7 @@ import { Check, Loader2, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { SelectHTMLAttributes } from "react";
 import type { Client } from "@/components/clients/types";
-import type { CatalogItem, OrderDetails, SewingMode } from "@/components/orders/types";
+import type { CatalogItem, OperationalPriority, OrderDetails, SewingMode } from "@/components/orders/types";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ApiError, api } from "@/lib/api";
@@ -23,6 +23,7 @@ type EditItem = {
   size_id: string;
   color: string;
   quantity_requested: number;
+  operational_priority: OperationalPriority;
   sewing_mode: SewingMode;
   service_ids: number[];
   notes: string;
@@ -49,6 +50,7 @@ function emptyItem(): EditItem {
     size_id: "",
     color: "",
     quantity_requested: 1,
+    operational_priority: "normal",
     sewing_mode: "internal",
     service_ids: [],
     notes: ""
@@ -192,6 +194,7 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
           size_id: Number(item.size_id),
           color: item.color.trim(),
           quantity_requested: Number(item.quantity_requested),
+          operational_priority: item.operational_priority,
           sewing_mode:
             item.sewing_mode === "outsourced"
               ? "outsourced"
@@ -250,6 +253,11 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
                 Esta OS ja possui movimentacoes. Apenas campos seguros podem ser alterados.
               </div>
             ) : null}
+            {locked ? (
+              <div className="rounded-md border border-accent/20 bg-accent-soft/40 p-4 text-sm font-semibold text-ink">
+                Voce pode aumentar a quantidade do pedido. Reducoes abaixo do que ja foi produzido nao sao permitidas.
+              </div>
+            ) : null}
             {error ? (
               <div className="rounded-md border border-danger/20 bg-danger/10 p-4 text-sm font-semibold text-danger">
                 {error}
@@ -304,6 +312,7 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
 
               {items.map((item, index) => {
                 const dangerDisabled = loading || saving || locked;
+                const quantityFloor = movementFloor(order, item);
                 const outsourced = item.sewing_mode === "outsourced";
                 return (
                   <div key={item.id ?? `new-${index}`} className="rounded-lg border border-line bg-[#FCFAF6] p-4">
@@ -365,13 +374,27 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
                       <Input
                         label="Quantidade"
                         type="number"
-                        min={1}
+                        min={locked ? quantityFloor : 1}
                         value={item.quantity_requested}
                         onChange={(event) =>
                           updateItem(index, { quantity_requested: Number(event.target.value) })
                         }
-                        disabled={dangerDisabled}
+                        disabled={loading || saving}
                       />
+                      <SelectField
+                        label="Prioridade"
+                        value={item.operational_priority}
+                        onChange={(event) =>
+                          updateItem(index, {
+                            operational_priority: event.target.value as OperationalPriority
+                          })
+                        }
+                        disabled={loading || saving}
+                      >
+                        <option value="normal">Normal</option>
+                        <option value="urgent">Urgente</option>
+                        <option value="critical">Critico</option>
+                      </SelectField>
                     </div>
 
                     <div className="mt-4">
@@ -491,6 +514,7 @@ function orderToItems(order: OrderDetails): EditItem[] {
     size_id: String(item.size_id),
     color: item.color,
     quantity_requested: item.quantity_requested,
+    operational_priority: item.operational_priority,
     sewing_mode: item.sewing_mode ?? "internal",
     service_ids: item.services.map((service) => service.service_id),
     notes: item.notes ?? ""
@@ -500,9 +524,6 @@ function orderToItems(order: OrderDetails): EditItem[] {
 function orderHasMovements(order: OrderDetails): boolean {
   return (
     order.production_status !== "created" ||
-    order.quantity_cut > 0 ||
-    order.quantity_printed > 0 ||
-    order.quantity_sewn > 0 ||
     order.production_events.length > 0 ||
     order.payments.length > 0 ||
     order.outsourcings.length > 0 ||
@@ -514,6 +535,24 @@ function orderHasMovements(order: OrderDetails): boolean {
         item.quantity_delivered > 0 ||
         item.delivered_at !== null
     )
+  );
+}
+
+function movementFloor(order: OrderDetails, item: EditItem): number {
+  const snapshotItem = item.id ? order.items.find((orderItem) => orderItem.id === item.id) : null;
+  if (!snapshotItem) return 1;
+  const outsourcedMax = order.outsourcings
+    .filter((outsourcing) => outsourcing.order_item_id === snapshotItem.id)
+    .reduce(
+      (max, outsourcing) => Math.max(max, outsourcing.quantity_sent, outsourcing.quantity_returned),
+      0
+    );
+  return Math.max(
+    snapshotItem.quantity_cut,
+    snapshotItem.quantity_printed,
+    snapshotItem.quantity_sewn,
+    snapshotItem.quantity_delivered,
+    outsourcedMax
   );
 }
 

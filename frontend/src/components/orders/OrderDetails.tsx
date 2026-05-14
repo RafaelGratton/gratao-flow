@@ -130,7 +130,7 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
           <p className="mt-2 text-sm font-semibold text-muted">
             {order.items.length > 1
               ? `${order.items.length} itens nesta OS`
-              : `${order.product.name} / ${order.size.label} / ${order.color}`}
+              : `${order.items[0]?.product.name ?? "-"} / ${order.items[0]?.size.label ?? "-"} / ${order.items[0]?.color ?? "-"}`}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -286,6 +286,35 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <h2 className="text-lg font-black text-ink">Historico operacional</h2>
+          <p className="mt-1 text-sm text-muted">Eventos por item com usuario, data, etapa, motivo e observacao.</p>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {buildOperationalHistory(order).length === 0 ? (
+              <p className="text-sm font-semibold text-muted">Sem movimentacoes registradas.</p>
+            ) : (
+              buildOperationalHistory(order).map((entry) => (
+                <div key={entry.key} className="rounded-md border border-line bg-[#FCFAF6] p-3 text-sm">
+                  <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                    <p className="font-black text-ink">{entry.label}</p>
+                    <p className="text-xs font-semibold text-muted">{formatDateTime(entry.at)}</p>
+                  </div>
+                  <p className="mt-1 text-xs font-semibold text-muted">
+                    Item {entry.itemLabel} / qtd. {entry.quantity ?? "-"} / usuario {entry.user}
+                  </p>
+                  {entry.reason ? <p className="mt-2 text-xs font-bold text-warning">Motivo: {entry.reason}</p> : null}
+                  {entry.notes ? <p className="mt-1 text-xs text-muted">Obs.: {entry.notes}</p> : null}
+                  {entry.beforeAfter ? <p className="mt-1 text-xs text-muted">{entry.beforeAfter}</p> : null}
+                </div>
+              ))
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       <PaymentModal
         orderId={order.id}
         open={paymentOpen}
@@ -319,4 +348,59 @@ function FinancialCard({
       </CardContent>
     </Card>
   );
+}
+
+function buildOperationalHistory(order: OrderDetailsType) {
+  const itemLabel = (itemId: number | null) => {
+    const index = order.items.findIndex((item) => item.id === itemId);
+    return index >= 0 ? String(index + 1) : "-";
+  };
+  const production = order.production_events
+    .filter((event) => event.order_item_id !== null && event.event_type !== "delivery_registered")
+    .map((event) => ({
+      key: `event-${event.id}`,
+      label: eventLabel(event.event_type),
+      itemLabel: itemLabel(event.order_item_id),
+      quantity: event.quantity,
+      user: event.user_name_snapshot ?? "nao registrado",
+      reason: event.reason,
+      notes: event.notes,
+      beforeAfter:
+        event.before_quantity !== null || event.after_quantity !== null
+          ? `Antes: ${event.before_quantity ?? "-"} / Depois: ${event.after_quantity ?? "-"}`
+          : null,
+      at: event.created_at
+    }));
+  const deliveries = order.items.flatMap((item, index) =>
+    item.delivery_history.map((entry) => ({
+      key: `delivery-${entry.id}`,
+      label: "Entrega registrada",
+      itemLabel: String(index + 1),
+      quantity: entry.quantity,
+      user: entry.user_name_snapshot ?? entry.responsible,
+      reason: null,
+      notes: entry.delivery_notes ?? entry.notes,
+      beforeAfter: entry.picked_up_by
+        ? `Retirado por: ${entry.picked_up_by} / ${entry.pickup_document ?? "sem documento"}`
+        : null,
+      at: entry.delivered_at
+    }))
+  );
+  return [...production, ...deliveries].sort(
+    (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()
+  );
+}
+
+function eventLabel(eventType: string) {
+  if (eventType === "cut_registered") return "Corte registrado";
+  if (eventType === "print_registered") return "DTF/serigrafia registrada";
+  if (eventType === "sewing_registered") return "Confeccao registrada";
+  if (eventType === "outsourcing_sent") return "Terceirizacao enviada";
+  if (eventType === "outsourcing_returned") return "Retorno de terceirizacao";
+  if (eventType === "delivery_registered") return "Entrega registrada";
+  if (eventType === "loss_registered") return "Perda registrada";
+  if (eventType === "rework_registered") return "Retrabalho registrado";
+  if (eventType === "adjustment_registered") return "Ajuste operacional";
+  if (eventType === "status_changed") return "Status alterado";
+  return eventType;
 }

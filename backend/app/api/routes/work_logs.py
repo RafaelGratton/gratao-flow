@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -7,13 +6,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.api.routes.employees import calculate_employee_work_log, ensure_work_log_can_change
 from app.db.session import get_db
 from app.models.employee import Employee, EmployeeWorkLog
-from app.models.enums import EmployeePaymentStatus, WorkType
+from app.models.enums import EmployeePaymentStatus
 from app.schemas.employee import WorkLogRead, WorkLogUpdate
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
-MONEY_QUANTIZER = Decimal("0.01")
 
 
 @router.get("", response_model=list[WorkLogRead])
@@ -31,7 +30,7 @@ def pay_work_log(
     db: Annotated[Session, Depends(get_db)],
 ) -> EmployeeWorkLog:
     work_log = _get_work_log_or_404(db, work_log_id)
-    _ensure_work_log_is_pending(work_log)
+    ensure_work_log_can_change(work_log, db)
 
     work_log.payment_status = EmployeePaymentStatus.PAID
     work_log.paid_at = datetime.now(timezone.utc)
@@ -47,17 +46,46 @@ def update_work_log(
     db: Annotated[Session, Depends(get_db)],
 ) -> EmployeeWorkLog:
     work_log = _get_work_log_or_404(db, work_log_id)
-    _ensure_work_log_is_pending(work_log)
+    ensure_work_log_can_change(work_log, db)
+    employee = db.get(Employee, work_log.employee_id)
+    if employee is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Employee not found",
+        )
 
-    if payload.work_type is not None:
-        employee = db.get(Employee, work_log.employee_id)
-        if employee is None:
+    new_work_date = payload.work_date or work_log.work_date
+    if new_work_date != work_log.work_date:
+        existing_id = db.scalar(
+            select(EmployeeWorkLog.id).where(
+                EmployeeWorkLog.employee_id == work_log.employee_id,
+                EmployeeWorkLog.work_date == new_work_date,
+            )
+        )
+        if existing_id is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Employee not found",
+                detail="Employee already has a work log for this date",
             )
-        work_log.work_type = payload.work_type
-        work_log.amount = _calculate_amount(employee.daily_rate, payload.work_type)
+        work_log.work_date = new_work_date
+
+    clock_in = payload.clock_in or work_log.clock_in
+    clock_out = payload.clock_out or work_log.clock_out
+    if clock_in is None or clock_out is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Hora de entrada e saida sao obrigatorias.",
+        )
+
+    calculated = calculate_employee_work_log(
+        employee=employee,
+        clock_in=clock_in,
+        clock_out=clock_out,
+        break_hours=payload.break_hours if payload.break_hours is not None else work_log.break_hours,
+        payment_mode=payload.payment_mode or work_log.payment_mode,
+    )
+    for field, value in calculated.items():
+        setattr(work_log, field, value)
     if payload.notes is not None:
         work_log.notes = payload.notes
 
@@ -72,7 +100,7 @@ def delete_work_log(
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
     work_log = _get_work_log_or_404(db, work_log_id)
-    _ensure_work_log_is_pending(work_log)
+    ensure_work_log_can_change(work_log, db)
     db.delete(work_log)
     db.commit()
 
@@ -85,23 +113,3 @@ def _get_work_log_or_404(db: Session, work_log_id: int) -> EmployeeWorkLog:
             detail="Work log not found",
         )
     return work_log
-
-
-def _ensure_work_log_is_pending(work_log: EmployeeWorkLog) -> None:
-    if work_log.payment_status == EmployeePaymentStatus.PAID:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Este registro de trabalho já foi pago.",
-        )
-
-
-def _calculate_amount(daily_rate: Decimal, work_type: WorkType) -> Decimal:
-    if work_type == WorkType.FULL_DAY:
-        return _money(daily_rate)
-    if work_type == WorkType.HALF_DAY:
-        return _money(daily_rate / Decimal("2"))
-    return Decimal("0.00")
-
-
-def _money(value: Decimal) -> Decimal:
-    return value.quantize(MONEY_QUANTIZER)

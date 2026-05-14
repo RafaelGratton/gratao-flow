@@ -1,10 +1,10 @@
 "use client";
 
-import { CalendarPlus, Plus, Rows3, UserRoundPlus } from "lucide-react";
+import { CalendarPlus, Pencil, Plus, Rows3, UserRoundPlus } from "lucide-react";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { Badge } from "@/components/ui/Badge";
 import { formatCurrency } from "@/lib/format";
 import type { Employee } from "./types";
 
@@ -12,18 +12,19 @@ type Props = {
   employees: Employee[];
   loading: boolean;
   onCreate: () => void;
+  onEdit: (employee: Employee) => void;
   onRegisterDay: (employee: Employee) => void;
   onViewLogs: (employee: Employee) => void;
 };
 
-export function EmployeeTable({ employees, loading, onCreate, onRegisterDay, onViewLogs }: Props) {
+export function EmployeeTable({ employees, loading, onCreate, onEdit, onRegisterDay, onViewLogs }: Props) {
   return (
     <Card className="overflow-hidden">
       <CardHeader className="bg-white/70">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent-dark">Equipe</p>
-            <h2 className="mt-1 text-2xl font-black text-ink">Funcionários</h2>
+            <h2 className="mt-1 text-2xl font-black text-ink">Funcionarios</h2>
           </div>
           <Button type="button" onClick={onCreate}>
             <Plus size={18} />
@@ -43,7 +44,7 @@ export function EmployeeTable({ employees, loading, onCreate, onRegisterDay, onV
             <EmptyState
               icon={<UserRoundPlus size={20} />}
               title="Nenhum funcionario cadastrado"
-              description="Cadastre a equipe para registrar diarias, faltas e pagamentos."
+              description="Cadastre a equipe para registrar ponto diario e fechamento semanal."
             >
               <Button type="button" className="mt-5" onClick={onCreate}>
                 <Plus size={18} />
@@ -53,10 +54,10 @@ export function EmployeeTable({ employees, loading, onCreate, onRegisterDay, onV
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-[860px] w-full border-separate border-spacing-0 text-left text-sm">
+            <table className="min-w-[1120px] w-full border-separate border-spacing-0 text-left text-sm">
               <thead>
                 <tr className="bg-[#FCFAF6] text-xs font-black uppercase tracking-[0.12em] text-muted">
-                  {["Nome", "Telefone", "Valor diaria", "Status", "Acoes"].map((heading) => (
+                  {["Nome", "Funcao", "Diaria", "Jornada", "Almoco", "Hora", "Status", "Acoes"].map((heading) => (
                     <th key={heading} className="border-b border-line px-4 py-3">
                       {heading}
                     </th>
@@ -67,9 +68,14 @@ export function EmployeeTable({ employees, loading, onCreate, onRegisterDay, onV
                 {employees.map((employee) => (
                   <tr key={employee.id} className="transition hover:bg-accent-soft/28">
                     <td className="border-b border-line/70 px-4 py-4 font-bold text-ink">{employee.name}</td>
-                    <td className="border-b border-line/70 px-4 py-4 text-muted">{employee.phone || "-"}</td>
+                    <td className="border-b border-line/70 px-4 py-4 text-muted">{employee.role || "-"}</td>
                     <td className="border-b border-line/70 px-4 py-4 font-bold text-ink">
                       {formatCurrency(employee.daily_rate)}
+                    </td>
+                    <td className="border-b border-line/70 px-4 py-4 text-muted">{employee.standard_daily_hours}h</td>
+                    <td className="border-b border-line/70 px-4 py-4 text-muted">{employee.standard_lunch_hours}h</td>
+                    <td className="border-b border-line/70 px-4 py-4 font-bold text-ink">
+                      {formatCurrency(employee.hourly_rate)}
                     </td>
                     <td className="border-b border-line/70 px-4 py-4">
                       <Badge tone={employee.is_active ? "success" : "neutral"}>
@@ -78,6 +84,10 @@ export function EmployeeTable({ employees, loading, onCreate, onRegisterDay, onV
                     </td>
                     <td className="border-b border-line/70 px-4 py-4">
                       <div className="flex flex-wrap gap-2">
+                        <Button type="button" variant="ghost" className="h-9 px-3" onClick={() => onEdit(employee)}>
+                          <Pencil size={15} />
+                          Editar
+                        </Button>
                         <Button type="button" variant="secondary" className="h-9 px-3" onClick={() => onRegisterDay(employee)}>
                           <CalendarPlus size={15} />
                           Registrar dia

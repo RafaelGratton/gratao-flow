@@ -3,6 +3,7 @@
 import { Shirt, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { OrderDetails, OrderItem } from "@/components/orders/types";
+import { itemNeedsStage } from "@/components/production/helpers";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { api } from "@/lib/api";
@@ -17,18 +18,23 @@ type Props = {
 
 export function ProductionSewModal({ order, item, open, onClose, onUpdated }: Props) {
   const [quantity, setQuantity] = useState("");
+  const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const suggestedQuantity = useMemo(() => {
     if (!item) return 0;
-    const available = Math.min(item.quantity_cut, item.quantity_requested);
+    const cutAvailable = Math.min(item.quantity_cut, item.quantity_requested);
+    const available = itemNeedsStage(item, "print")
+      ? Math.min(item.quantity_printed, item.quantity_requested)
+      : cutAvailable;
     return Math.max(available - item.quantity_sewn, 0);
   }, [item]);
 
   useEffect(() => {
     if (open && order && item) {
       setQuantity("");
+      setNotes("");
       setError(null);
     }
   }, [open, order, item]);
@@ -41,7 +47,8 @@ export function ProductionSewModal({ order, item, open, onClose, onUpdated }: Pr
     setError(null);
     try {
       const updated = await api.post<OrderDetails>(`/orders/${order.id}/items/${item.id}/sew`, {
-        quantity: Number(quantity)
+        quantity: Number(quantity),
+        notes: notes.trim() || null
       });
       onUpdated(updated);
       onClose();
@@ -93,6 +100,14 @@ export function ProductionSewModal({ order, item, open, onClose, onUpdated }: Pr
           <div className="rounded-md border border-line bg-[#FCFAF6] p-3 text-xs font-semibold leading-5 text-muted">
             Disponivel para confeccao: {suggestedQuantity}. O registro e incremental por item.
           </div>
+          <label className="block space-y-2">
+            <span className="text-sm font-semibold text-ink">Observacao operacional</span>
+            <textarea
+              className="min-h-24 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink shadow-insetline transition focus:focus-ring"
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+            />
+          </label>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={onClose}>
               Cancelar

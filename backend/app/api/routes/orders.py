@@ -11,6 +11,7 @@ from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.client import Client
 from app.models.enums import (
+    DeliveryStatus,
     FinancialStatus,
     OutsourcingStatus,
     PayoutStatus,
@@ -37,6 +38,9 @@ from app.models.weekly_closing import WeeklyClosing
 from app.schemas.order import (
     CutRegister,
     ItemQuantityRegister,
+    OperationalAdjustmentRegister,
+    OperationalEventRegister,
+    OperationalHistoryEntry,
     OrderCreate,
     OrderRead,
     OrderSummary,
@@ -58,30 +62,38 @@ from app.services.reports import (
     generate_client_order_report_pdf,
     generate_internal_order_report_pdf,
 )
-from app.services.deliveries import sync_item_delivery_status, sync_order_items_delivery_status
+from app.services.deliveries import (
+    ready_to_deliver_quantity,
+    sync_item_delivery_status,
+    sync_order_items_delivery_status,
+)
 from app.services.stock import (
-    get_or_create_piece_stock_item_for_order,
+    get_or_create_piece_stock_item_for_order_item,
     register_stock_movement,
 )
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
 MONEY_QUANTIZER = Decimal("0.01")
+LEGACY_MULTI_ITEM_OPERATION_MESSAGE = "Esta operação deve ser executada por item em OS multi-itens."
 STATUS_ORDER = {
     ProductionStatus.CREATED: 0,
-    ProductionStatus.IN_CUT: 1,
-    ProductionStatus.CUT_DONE: 2,
-    ProductionStatus.WAITING_PRINT: 3,
-    ProductionStatus.IN_PRINT: 4,
-    ProductionStatus.PRINT_DONE: 5,
-    ProductionStatus.WAITING_SEWING: 6,
-    ProductionStatus.IN_SEWING: 7,
-    ProductionStatus.SEWING_DONE: 8,
-    ProductionStatus.OUTSOURCED: 9,
-    ProductionStatus.RETURNED: 10,
-    ProductionStatus.READY: 11,
-    ProductionStatus.DELIVERED: 12,
-    ProductionStatus.CANCELLED: 13,
+    ProductionStatus.IN_PROGRESS: 1,
+    ProductionStatus.MIXED: 2,
+    ProductionStatus.IN_CUT: 3,
+    ProductionStatus.CUT_DONE: 4,
+    ProductionStatus.WAITING_PRINT: 5,
+    ProductionStatus.IN_PRINT: 6,
+    ProductionStatus.PRINT_DONE: 7,
+    ProductionStatus.WAITING_SEWING: 8,
+    ProductionStatus.IN_SEWING: 9,
+    ProductionStatus.SEWING_DONE: 10,
+    ProductionStatus.OUTSOURCED: 11,
+    ProductionStatus.RETURNED: 12,
+    ProductionStatus.PARTIAL_READY: 13,
+    ProductionStatus.READY: 14,
+    ProductionStatus.DELIVERED: 15,
+    ProductionStatus.CANCELLED: 16,
 }
 
 
@@ -122,6 +134,7 @@ def create_order(
             quantity_cut=0,
             quantity_printed=0,
             quantity_sewn=0,
+            operational_priority=item_payload.operational_priority,
             sewing_mode=_normalized_sewing_mode(item_payload, services),
             notes=item_payload.notes,
         )
@@ -150,6 +163,7 @@ def create_order(
 
     order.total_amount = _money(total_amount)
     order.amount_due = order.total_amount
+    _sync_order_snapshot_from_items(order)
 
     db.add(order)
     db.commit()
@@ -192,7 +206,7 @@ def update_order(
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
 
     if _order_has_movements(order):
-        _apply_safe_order_update(order, payload)
+        _apply_safe_order_update(db, order, payload)
         db.commit()
         return _get_order_or_404(db, order.id)
 
@@ -301,43 +315,19 @@ def register_cut(
     order_id: int,
     payload: CutRegister,
     db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
     order = _get_order_or_404(db, order_id)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
-    if payload.quantity_cut < order.quantity_cut:
+    item = _get_single_item_for_legacy_operation(order)
+
+    if payload.quantity_cut < item.quantity_cut:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="quantity_cut cannot be lower than the current cut quantity",
         )
 
-    previous_status = order.production_status
-    previous_extra = order.quantity_extra
-    order.quantity_cut = payload.quantity_cut
-    order.quantity_extra = max(order.quantity_cut - order.quantity_requested, 0)
-    quantity_extra_delta = order.quantity_extra - previous_extra
-    db.add(
-        ProductionEvent(
-            order_id=order.id,
-            event_type=ProductionEventType.CUT_REGISTERED,
-            quantity=payload.quantity_cut,
-            notes=payload.notes,
-        )
-    )
-
-    if previous_status in {ProductionStatus.CREATED, ProductionStatus.IN_CUT}:
-        _change_status(db, order, ProductionStatus.CUT_DONE, payload.quantity_cut)
-
-    if quantity_extra_delta > 0:
-        stock_item = get_or_create_piece_stock_item_for_order(db, order)
-        register_stock_movement(
-            db,
-            stock_item,
-            movement_type=StockMovementType.EXCESS_CUT,
-            quantity=Decimal(quantity_extra_delta),
-            reference_type="order",
-            reference_id=order.id,
-            notes=payload.notes,
-        )
+    _set_item_cut_quantity(db, order, item, payload.quantity_cut, payload.quantity_cut, payload.notes, user)
 
     db.commit()
     return _get_order_or_404(db, order.id)
@@ -348,26 +338,30 @@ def register_print(
     order_id: int,
     payload: PrintRegister,
     db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
     order = _get_order_or_404(db, order_id)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
-    _validate_print_registration(order, payload)
+    item = _get_single_item_for_legacy_operation(order)
+    _validate_item_print_registration(order, item, payload)
 
-    order.quantity_printed += payload.quantity
+    before_quantity = item.quantity_printed
+    item.quantity_printed += payload.quantity
     order.print_type = payload.print_type
-    db.add(
-        ProductionEvent(
-            order_id=order.id,
-            event_type=ProductionEventType.PRINT_REGISTERED,
-            quantity=payload.quantity,
-            notes=payload.notes,
-        )
+    _add_production_event(
+        db,
+        order=order,
+        item=item,
+        event_type=ProductionEventType.PRINT_REGISTERED,
+        stage="print",
+        quantity=payload.quantity,
+        notes=payload.notes,
+        user=user,
+        before_quantity=before_quantity,
+        after_quantity=item.quantity_printed,
     )
-
-    if order.production_status == ProductionStatus.CUT_DONE:
-        _change_status(db, order, ProductionStatus.IN_PRINT, payload.quantity)
-    if order.quantity_printed >= order.quantity_requested:
-        _change_status(db, order, ProductionStatus.PRINT_DONE, payload.quantity)
+    _sync_order_production_snapshot(db, order, payload.quantity, user)
+    sync_order_items_delivery_status(order)
 
     db.commit()
     return _get_order_or_404(db, order.id)
@@ -378,29 +372,29 @@ def register_sewing(
     order_id: int,
     payload: SewingRegister,
     db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
     order = _get_order_or_404(db, order_id)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
-    has_printing = _has_printing(order)
-    _validate_sewing_registration(order, payload, has_printing)
+    item = _get_single_item_for_legacy_operation(order)
+    _validate_item_sewing_registration(item, payload)
 
-    order.quantity_sewn += payload.quantity
-    db.add(
-        ProductionEvent(
-            order_id=order.id,
-            event_type=ProductionEventType.SEWING_REGISTERED,
-            quantity=payload.quantity,
-            notes=payload.notes,
-        )
+    before_quantity = item.quantity_sewn
+    item.quantity_sewn += payload.quantity
+    _add_production_event(
+        db,
+        order=order,
+        item=item,
+        event_type=ProductionEventType.SEWING_REGISTERED,
+        stage="sew",
+        quantity=payload.quantity,
+        notes=payload.notes,
+        user=user,
+        before_quantity=before_quantity,
+        after_quantity=item.quantity_sewn,
     )
-
-    if order.production_status in {
-        ProductionStatus.CUT_DONE,
-        ProductionStatus.PRINT_DONE,
-    }:
-        _change_status(db, order, ProductionStatus.IN_SEWING, payload.quantity)
-    if order.quantity_sewn >= order.quantity_requested:
-        _change_status(db, order, ProductionStatus.SEWING_DONE, payload.quantity)
+    _sync_order_production_snapshot(db, order, payload.quantity, user)
+    sync_order_items_delivery_status(order)
 
     db.commit()
     return _get_order_or_404(db, order.id)
@@ -416,31 +410,14 @@ def register_item_cut(
     item_id: int,
     payload: ItemQuantityRegister,
     db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
     order = _get_order_or_404(db, order_id)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
     item = _get_order_item_or_404(order, item_id)
 
     new_quantity = item.quantity_cut + payload.quantity
-    if new_quantity > item.quantity_requested:
-        remaining = item.quantity_requested - item.quantity_cut
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Quantidade cortada excede o solicitado para este item. Faltam cortar {remaining}.",
-        )
-
-    item.quantity_cut = new_quantity
-    db.add(
-        ProductionEvent(
-            order_id=order.id,
-            order_item_id=item.id,
-            event_type=ProductionEventType.CUT_REGISTERED,
-            quantity=payload.quantity,
-            notes=payload.notes,
-        )
-    )
-    _sync_order_production_snapshot(db, order, payload.quantity)
-    sync_order_items_delivery_status(order)
+    _set_item_cut_quantity(db, order, item, new_quantity, payload.quantity, payload.notes, user)
 
     db.commit()
     return _get_order_or_404(db, order.id)
@@ -456,24 +433,29 @@ def register_item_print(
     item_id: int,
     payload: PrintRegister,
     db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
     order = _get_order_or_404(db, order_id)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
     item = _get_order_item_or_404(order, item_id)
     _validate_item_print_registration(order, item, payload)
 
+    before_quantity = item.quantity_printed
     item.quantity_printed += payload.quantity
     order.print_type = payload.print_type
-    db.add(
-        ProductionEvent(
-            order_id=order.id,
-            order_item_id=item.id,
-            event_type=ProductionEventType.PRINT_REGISTERED,
-            quantity=payload.quantity,
-            notes=payload.notes,
-        )
+    _add_production_event(
+        db,
+        order=order,
+        item=item,
+        event_type=ProductionEventType.PRINT_REGISTERED,
+        stage="print",
+        quantity=payload.quantity,
+        notes=payload.notes,
+        user=user,
+        before_quantity=before_quantity,
+        after_quantity=item.quantity_printed,
     )
-    _sync_order_production_snapshot(db, order, payload.quantity)
+    _sync_order_production_snapshot(db, order, payload.quantity, user)
     sync_order_items_delivery_status(order)
 
     db.commit()
@@ -490,23 +472,28 @@ def register_item_sewing(
     item_id: int,
     payload: SewingRegister,
     db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
     order = _get_order_or_404(db, order_id)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
     item = _get_order_item_or_404(order, item_id)
     _validate_item_sewing_registration(item, payload)
 
+    before_quantity = item.quantity_sewn
     item.quantity_sewn += payload.quantity
-    db.add(
-        ProductionEvent(
-            order_id=order.id,
-            order_item_id=item.id,
-            event_type=ProductionEventType.SEWING_REGISTERED,
-            quantity=payload.quantity,
-            notes=payload.notes,
-        )
+    _add_production_event(
+        db,
+        order=order,
+        item=item,
+        event_type=ProductionEventType.SEWING_REGISTERED,
+        stage="sew",
+        quantity=payload.quantity,
+        notes=payload.notes,
+        user=user,
+        before_quantity=before_quantity,
+        after_quantity=item.quantity_sewn,
     )
-    _sync_order_production_snapshot(db, order, payload.quantity)
+    _sync_order_production_snapshot(db, order, payload.quantity, user)
     sync_order_items_delivery_status(order)
 
     db.commit()
@@ -518,6 +505,7 @@ def create_order_outsourcing(
     order_id: int,
     payload: OutsourcingCreate,
     db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
     order = _get_order_or_404(db, order_id)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
@@ -561,17 +549,26 @@ def create_order_outsourcing(
         notes=payload.notes,
     )
     db.add(outsourcing)
-    db.add(
-        ProductionEvent(
-            order_id=order.id,
-            order_item_id=item.id,
-            event_type=ProductionEventType.OUTSOURCING_SENT,
-            quantity=payload.quantity_sent,
-            notes=payload.notes,
-        )
+    previous_outsourced_quantity = sum(
+        existing.quantity_sent
+        for existing in order.outsourcings
+        if existing.order_item_id == item.id
+        and existing.status != OutsourcingStatus.CANCELLED
+    )
+    _add_production_event(
+        db,
+        order=order,
+        item=item,
+        event_type=ProductionEventType.OUTSOURCING_SENT,
+        stage="outsourcing",
+        quantity=payload.quantity_sent,
+        notes=payload.notes,
+        user=user,
+        before_quantity=previous_outsourced_quantity,
+        after_quantity=previous_outsourced_quantity + payload.quantity_sent,
     )
 
-    _change_status(db, order, ProductionStatus.OUTSOURCED, payload.quantity_sent)
+    _sync_order_production_snapshot(db, order, payload.quantity_sent, user)
 
     db.commit()
     return _get_order_or_404(db, order.id)
@@ -602,6 +599,7 @@ def register_outsourcing_return(
     outsourcing_id: int,
     payload: OutsourcingReturn,
     db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
     order = _get_order_or_404(db, order_id)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
@@ -624,6 +622,7 @@ def register_outsourcing_return(
             detail="Cannot return more than sent quantity",
         )
 
+    previous_returned_quantity = outsourcing.quantity_returned
     outsourcing.quantity_returned = new_returned_quantity
     if outsourcing.quantity_returned < outsourcing.quantity_sent:
         outsourcing.status = OutsourcingStatus.PARTIALLY_RETURNED
@@ -631,20 +630,22 @@ def register_outsourcing_return(
         outsourcing.status = OutsourcingStatus.RETURNED
         outsourcing.returned_at = _utcnow()
 
-    db.add(
-        ProductionEvent(
-            order_id=order.id,
-            order_item_id=outsourcing.order_item_id,
-            event_type=ProductionEventType.OUTSOURCING_RETURNED,
-            quantity=payload.quantity_returned,
-            notes=payload.notes,
-        )
+    _add_production_event(
+        db,
+        order=order,
+        item=outsourcing.order_item,
+        event_type=ProductionEventType.OUTSOURCING_RETURNED,
+        stage="outsourcing_return",
+        quantity=payload.quantity_returned,
+        notes=payload.notes,
+        user=user,
+        before_quantity=previous_returned_quantity,
+        after_quantity=outsourcing.quantity_returned,
     )
 
-    if outsourcing.status == OutsourcingStatus.RETURNED:
-        if outsourcing.order_item is not None:
-            sync_item_delivery_status(outsourcing.order_item, order)
-        _sync_order_production_snapshot(db, order, payload.quantity_returned)
+    if outsourcing.order_item is not None:
+        sync_item_delivery_status(outsourcing.order_item, order)
+    _sync_order_production_snapshot(db, order, payload.quantity_returned, user)
 
     db.commit()
     return _get_order_or_404(db, order.id)
@@ -660,6 +661,7 @@ def pay_order_outsourcing(
     outsourcing_id: int,
     payload: OutsourcingPayout,
     db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
     order = _get_order_or_404(db, order_id)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
@@ -670,25 +672,391 @@ def pay_order_outsourcing(
     if payload.notes:
         outsourcing.notes = _append_note(outsourcing.notes, payload.notes)
 
-    db.add(
-        ProductionEvent(
-            order_id=order.id,
-            event_type=ProductionEventType.OUTSOURCING_PAYOUT_PAID,
-            quantity=outsourcing.quantity_sent,
-            notes=payload.notes,
-        )
+    _add_production_event(
+        db,
+        order=order,
+        item=outsourcing.order_item,
+        event_type=ProductionEventType.OUTSOURCING_PAYOUT_PAID,
+        stage="outsourcing",
+        quantity=outsourcing.quantity_sent,
+        notes=payload.notes,
+        user=user,
     )
 
     db.commit()
     return _get_order_or_404(db, order.id)
 
 
+@router.post(
+    "/{order_id}/items/{item_id}/loss",
+    response_model=OrderRead,
+    status_code=201,
+)
+def register_item_loss(
+    order_id: int,
+    item_id: int,
+    payload: OperationalEventRegister,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> Order:
+    order = _get_order_or_404(db, order_id)
+    _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    item = _get_order_item_or_404(order, item_id)
+
+    _add_production_event(
+        db,
+        order=order,
+        item=item,
+        event_type=ProductionEventType.LOSS_REGISTERED,
+        stage=payload.stage,
+        quantity=payload.quantity,
+        reason=_clean_required_text(payload.reason) or payload.reason,
+        notes=_clean_optional_text(payload.notes),
+        user=user,
+    )
+    db.commit()
+    return _get_order_or_404(db, order.id)
+
+
+@router.post(
+    "/{order_id}/items/{item_id}/rework",
+    response_model=OrderRead,
+    status_code=201,
+)
+def register_item_rework(
+    order_id: int,
+    item_id: int,
+    payload: OperationalEventRegister,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> Order:
+    order = _get_order_or_404(db, order_id)
+    _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    item = _get_order_item_or_404(order, item_id)
+
+    _add_production_event(
+        db,
+        order=order,
+        item=item,
+        event_type=ProductionEventType.REWORK_REGISTERED,
+        stage=payload.stage,
+        quantity=payload.quantity,
+        reason=_clean_required_text(payload.reason) or payload.reason,
+        notes=_clean_optional_text(payload.notes),
+        user=user,
+    )
+    db.commit()
+    return _get_order_or_404(db, order.id)
+
+
+@router.post(
+    "/{order_id}/items/{item_id}/adjustment",
+    response_model=OrderRead,
+    status_code=201,
+)
+def register_item_adjustment(
+    order_id: int,
+    item_id: int,
+    payload: OperationalAdjustmentRegister,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> Order:
+    order = _get_order_or_404(db, order_id)
+    _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    item = _get_order_item_or_404(order, item_id)
+
+    before_quantity = _quantity_for_adjustment_stage(item, payload.stage)
+    after_quantity = before_quantity + payload.quantity_delta
+    if after_quantity < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ajuste nao pode gerar quantidade negativa.",
+        )
+
+    _apply_item_adjustment(order, item, payload.stage, after_quantity)
+    _add_production_event(
+        db,
+        order=order,
+        item=item,
+        event_type=ProductionEventType.ADJUSTMENT_REGISTERED,
+        stage=payload.stage,
+        quantity=payload.quantity_delta,
+        before_quantity=before_quantity,
+        after_quantity=after_quantity,
+        reason=_clean_required_text(payload.reason) or payload.reason,
+        notes=_clean_required_text(payload.notes) or payload.notes,
+        user=user,
+    )
+    _sync_order_production_snapshot(db, order, abs(payload.quantity_delta), user)
+    sync_order_items_delivery_status(order)
+
+    db.commit()
+    return _get_order_or_404(db, order.id)
+
+
+@router.get(
+    "/{order_id}/items/{item_id}/history",
+    response_model=list[OperationalHistoryEntry],
+)
+def get_item_operational_history(
+    order_id: int,
+    item_id: int,
+    db: Annotated[Session, Depends(get_db)],
+) -> list[OperationalHistoryEntry]:
+    order = _get_order_or_404(db, order_id)
+    item = _get_order_item_or_404(order, item_id)
+    return _build_item_operational_history(order, item)
+
+
+def _add_production_event(
+    db: Session,
+    *,
+    order: Order,
+    item: OrderItem | None,
+    event_type: ProductionEventType,
+    stage: str | None = None,
+    quantity: int | None = None,
+    before_quantity: int | None = None,
+    after_quantity: int | None = None,
+    reason: str | None = None,
+    notes: str | None = None,
+    user: User | None = None,
+    from_status: ProductionStatus | None = None,
+    to_status: ProductionStatus | None = None,
+) -> None:
+    user_id, user_name = _user_snapshot(user)
+    db.add(
+        ProductionEvent(
+            order_id=order.id,
+            order_item_id=item.id if item is not None else None,
+            event_type=event_type,
+            stage=stage,
+            quantity=quantity,
+            before_quantity=before_quantity,
+            after_quantity=after_quantity,
+            reason=reason,
+            notes=notes,
+            user_id=user_id,
+            user_name_snapshot=user_name,
+            from_status=from_status,
+            to_status=to_status,
+        )
+    )
+
+
+def _user_snapshot(user: User | None) -> tuple[int | None, str | None]:
+    if user is None:
+        return None, None
+    return user.id, user.name or user.email
+
+
+def _quantity_for_adjustment_stage(item: OrderItem, stage: str) -> int:
+    if stage == "cut":
+        return item.quantity_cut
+    if stage == "print":
+        return item.quantity_printed
+    if stage == "sew":
+        return item.quantity_sewn
+    if stage == "delivered":
+        return item.quantity_delivered
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Etapa de ajuste invalida.")
+
+
+def _apply_item_adjustment(
+    order: Order,
+    item: OrderItem,
+    stage: str,
+    after_quantity: int,
+) -> None:
+    if stage == "cut":
+        _validate_cut_adjustment(order, item, after_quantity)
+        item.quantity_cut = after_quantity
+        return
+    if stage == "print":
+        _validate_print_adjustment(order, item, after_quantity)
+        item.quantity_printed = after_quantity
+        return
+    if stage == "sew":
+        _validate_sewing_adjustment(order, item, after_quantity)
+        item.quantity_sewn = after_quantity
+        return
+    if stage == "delivered":
+        _validate_delivery_adjustment(order, item, after_quantity)
+        item.quantity_delivered = after_quantity
+        if item.quantity_delivered < item.quantity_requested:
+            item.delivered_at = None
+        return
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Etapa de ajuste invalida.")
+
+
+def _validate_cut_adjustment(order: Order, item: OrderItem, after_quantity: int) -> None:
+    if after_quantity < item.quantity_printed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Corte nao pode ficar menor que a quantidade ja estampada.",
+        )
+    outsourced_quantity = _active_item_outsourced_quantity(order, item)
+    if not _item_has_printing(item) and after_quantity < outsourced_quantity:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Corte nao pode ficar menor que a quantidade ja enviada para terceirizacao.",
+        )
+    if not _item_has_printing(item) and not _item_has_sewing(item) and after_quantity < item.quantity_delivered:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Corte nao pode ficar menor que a quantidade ja entregue.",
+        )
+
+
+def _validate_print_adjustment(order: Order, item: OrderItem, after_quantity: int) -> None:
+    if not _item_has_printing(item):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este item nao possui etapa de DTF/serigrafia.",
+        )
+    if after_quantity > item.quantity_cut:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="DTF nao pode ficar maior que a quantidade cortada.",
+        )
+    if after_quantity > item.quantity_requested:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="DTF nao pode ficar maior que a quantidade solicitada.",
+        )
+    if after_quantity < item.quantity_sewn:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="DTF nao pode ficar menor que a quantidade ja confeccionada.",
+        )
+    outsourced_quantity = _active_item_outsourced_quantity(order, item)
+    if item.sewing_mode == SewingMode.OUTSOURCED and after_quantity < outsourced_quantity:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="DTF nao pode ficar menor que a quantidade ja enviada para terceirizacao.",
+        )
+    if not _item_has_sewing(item) and item.sewing_mode != SewingMode.OUTSOURCED and after_quantity < item.quantity_delivered:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="DTF nao pode ficar menor que a quantidade ja entregue.",
+        )
+
+
+def _validate_sewing_adjustment(order: Order, item: OrderItem, after_quantity: int) -> None:
+    if not _item_has_sewing(item) or item.sewing_mode != SewingMode.INTERNAL:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este item nao possui confeccao interna.",
+        )
+    sewing_limit = (
+        min(item.quantity_printed, item.quantity_requested)
+        if _item_has_printing(item)
+        else min(item.quantity_cut, item.quantity_requested)
+    )
+    if after_quantity > sewing_limit:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Confeccao nao pode ficar maior que o saldo permitido.",
+        )
+    if after_quantity < item.quantity_delivered:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Confeccao nao pode ficar menor que a quantidade ja entregue.",
+        )
+
+
+def _validate_delivery_adjustment(order: Order, item: OrderItem, after_quantity: int) -> None:
+    ready_quantity = ready_to_deliver_quantity(item, order)
+    if after_quantity > ready_quantity:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Entrega nao pode ficar maior que a quantidade pronta.",
+        )
+    if after_quantity > item.quantity_requested:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Entrega nao pode ficar maior que a quantidade solicitada.",
+        )
+
+
+def _active_item_outsourced_quantity(order: Order, item: OrderItem) -> int:
+    return sum(
+        outsourcing.quantity_sent
+        for outsourcing in order.outsourcings
+        if outsourcing.order_item_id == item.id
+        and outsourcing.status != OutsourcingStatus.CANCELLED
+    )
+
+
+def _build_item_operational_history(
+    order: Order,
+    item: OrderItem,
+) -> list[OperationalHistoryEntry]:
+    entries: list[OperationalHistoryEntry] = []
+    for event in order.production_events:
+        if event.order_item_id != item.id:
+            continue
+        if event.event_type == ProductionEventType.DELIVERY_REGISTERED:
+            continue
+        entries.append(
+            OperationalHistoryEntry(
+                source="production_event",
+                event_type=event.event_type.value,
+                label=_production_event_label(event),
+                order_id=order.id,
+                order_item_id=item.id,
+                stage=event.stage,
+                quantity=event.quantity,
+                before_quantity=event.before_quantity,
+                after_quantity=event.after_quantity,
+                reason=event.reason,
+                notes=event.notes,
+                user_id=event.user_id,
+                user_name=event.user_name_snapshot,
+                created_at=event.created_at,
+            )
+        )
+    for delivery in item.delivery_history:
+        entries.append(
+            OperationalHistoryEntry(
+                source="delivery_history",
+                event_type=ProductionEventType.DELIVERY_REGISTERED.value,
+                label="Entrega registrada",
+                order_id=order.id,
+                order_item_id=item.id,
+                stage="delivered",
+                quantity=delivery.quantity,
+                notes=delivery.delivery_notes or delivery.notes,
+                user_id=delivery.user_id,
+                user_name=delivery.user_name_snapshot or delivery.responsible,
+                picked_up_by=delivery.picked_up_by,
+                pickup_document=delivery.pickup_document,
+                created_at=delivery.delivered_at,
+            )
+        )
+    return sorted(entries, key=lambda entry: entry.created_at, reverse=True)
+
+
+def _production_event_label(event: ProductionEvent) -> str:
+    labels = {
+        ProductionEventType.CUT_REGISTERED: "Corte registrado",
+        ProductionEventType.PRINT_REGISTERED: "DTF/serigrafia registrada",
+        ProductionEventType.SEWING_REGISTERED: "Confeccao registrada",
+        ProductionEventType.OUTSOURCING_SENT: "Terceirizacao enviada",
+        ProductionEventType.OUTSOURCING_RETURNED: "Retorno de terceirizacao registrado",
+        ProductionEventType.OUTSOURCING_PAYOUT_PAID: "Pagamento de terceirizacao registrado",
+        ProductionEventType.DELIVERY_REGISTERED: "Entrega registrada",
+        ProductionEventType.LOSS_REGISTERED: "Perda registrada",
+        ProductionEventType.REWORK_REGISTERED: "Retrabalho registrado",
+        ProductionEventType.ADJUSTMENT_REGISTERED: "Ajuste operacional registrado",
+        ProductionEventType.STATUS_CHANGED: "Status alterado",
+    }
+    return labels.get(event.event_type, event.event_type.value)
+
+
 def _order_has_movements(order: Order) -> bool:
     return (
         order.production_status != ProductionStatus.CREATED
-        or order.quantity_cut > 0
-        or order.quantity_printed > 0
-        or order.quantity_sewn > 0
         or bool(order.production_events)
         or bool(order.payments)
         or bool(order.outsourcings)
@@ -703,7 +1071,7 @@ def _order_has_movements(order: Order) -> bool:
     )
 
 
-def _apply_safe_order_update(order: Order, payload: OrderUpdate) -> None:
+def _apply_safe_order_update(db: Session, order: Order, payload: OrderUpdate) -> None:
     existing_items = {item.id: item for item in order.items}
     payload_ids = [item.id for item in payload.items]
     if any(item_id is None for item_id in payload_ids):
@@ -745,7 +1113,6 @@ def _apply_safe_order_update(order: Order, payload: OrderUpdate) -> None:
         if (
             item_payload.product_id != item.product_id
             or item_payload.size_id != item.size_id
-            or item_payload.quantity_requested != item.quantity_requested
             or item_payload.sewing_mode != item.sewing_mode
             or item_payload.service_ids != current_service_ids
         ):
@@ -753,10 +1120,20 @@ def _apply_safe_order_update(order: Order, payload: OrderUpdate) -> None:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
                     "Esta OS ja possui movimentacoes. Campos de produto, tamanho, "
-                    "quantidade, servicos e producao final nao podem ser alterados."
+                    "servicos e producao final nao podem ser alterados."
                 ),
             )
+        movement_floor = _item_quantity_movement_floor(order, item)
+        if item_payload.quantity_requested < movement_floor:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Nao e possivel reduzir a quantidade abaixo do que ja foi produzido/entregue."
+                ),
+            )
+        item.quantity_requested = item_payload.quantity_requested
         item.color = item_payload.color
+        item.operational_priority = item_payload.operational_priority
         item.notes = item_payload.notes
 
     first_item = order.items[0]
@@ -764,6 +1141,30 @@ def _apply_safe_order_update(order: Order, payload: OrderUpdate) -> None:
     order.size_id = first_item.size_id
     order.color = first_item.color
     order.notes = payload.notes
+    _sync_order_totals(order)
+    sync_order_items_delivery_status(order)
+    _sync_order_status_after_quantity_update(db, order)
+
+
+def _item_quantity_movement_floor(order: Order, item: OrderItem) -> int:
+    returned_outsourced = sum(
+        outsourcing.quantity_returned
+        for outsourcing in order.outsourcings
+        if outsourcing.order_item_id == item.id and outsourcing.status != OutsourcingStatus.CANCELLED
+    )
+    sent_outsourced = sum(
+        outsourcing.quantity_sent
+        for outsourcing in order.outsourcings
+        if outsourcing.order_item_id == item.id and outsourcing.status != OutsourcingStatus.CANCELLED
+    )
+    return max(
+        item.quantity_cut,
+        item.quantity_printed,
+        item.quantity_sewn,
+        item.quantity_delivered,
+        returned_outsourced,
+        sent_outsourced,
+    )
 
 
 def _replace_order_items(
@@ -783,6 +1184,7 @@ def _replace_order_items(
             quantity_cut=0,
             quantity_printed=0,
             quantity_sewn=0,
+            operational_priority=item_payload.operational_priority,
             sewing_mode=_normalized_sewing_mode(item_payload, services),
             notes=item_payload.notes,
         )
@@ -821,7 +1223,58 @@ def _sync_order_snapshot_from_items(order: Order) -> None:
     order.quantity_cut = sum(item.quantity_cut for item in order.items)
     order.quantity_printed = sum(item.quantity_printed for item in order.items)
     order.quantity_sewn = sum(item.quantity_sewn for item in order.items)
-    order.quantity_extra = 0
+    order.quantity_extra = sum(
+        max(item.quantity_cut - item.quantity_requested, 0)
+        for item in order.items
+    )
+
+
+def _sync_order_totals(order: Order) -> None:
+    _sync_order_snapshot_from_items(order)
+
+    total_amount = Decimal("0.00")
+    service_snapshots: list[tuple[int, int, Decimal, Decimal]] = []
+    for item in order.items:
+        for item_service in item.services:
+            item_service.quantity = item.quantity_requested
+            item_service.total_price = _money(
+                item_service.unit_price * item.quantity_requested
+            )
+            total_amount += item_service.total_price
+            service_snapshots.append(
+                (
+                    item_service.service_id,
+                    item_service.quantity,
+                    item_service.unit_price,
+                    item_service.total_price,
+                )
+            )
+
+    if len(order.services) == len(service_snapshots):
+        for order_service, (
+            service_id,
+            quantity,
+            unit_price,
+            total_price,
+        ) in zip(order.services, service_snapshots):
+            order_service.service_id = service_id
+            order_service.quantity = quantity
+            order_service.unit_price = unit_price
+            order_service.total_price = total_price
+    else:
+        order.services.clear()
+        for service_id, quantity, unit_price, total_price in service_snapshots:
+            order.services.append(
+                OrderService(
+                    service_id=service_id,
+                    quantity=quantity,
+                    unit_price=unit_price,
+                    total_price=total_price,
+                )
+            )
+
+    order.total_amount = _money(total_amount)
+    _refresh_financials(order)
 
 
 def _ensure_order_references_exist(
@@ -914,6 +1367,7 @@ def _get_order_or_404(db: Session, order_id: int) -> Order:
             selectinload(Order.size),
             selectinload(Order.items).selectinload(OrderItem.product),
             selectinload(Order.items).selectinload(OrderItem.size),
+            selectinload(Order.items).selectinload(OrderItem.delivery_history),
             selectinload(Order.items)
             .selectinload(OrderItem.services)
             .selectinload(OrderItemService.service),
@@ -927,6 +1381,59 @@ def _get_order_or_404(db: Session, order_id: int) -> Order:
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     return order
+
+
+def _get_single_item_for_legacy_operation(order: Order) -> OrderItem:
+    if len(order.items) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=LEGACY_MULTI_ITEM_OPERATION_MESSAGE,
+        )
+    return order.items[0]
+
+
+def _set_item_cut_quantity(
+    db: Session,
+    order: Order,
+    item: OrderItem,
+    new_quantity: int,
+    event_quantity: int,
+    notes: str | None,
+    user: User | None,
+) -> None:
+    previous_extra = max(item.quantity_cut - item.quantity_requested, 0)
+    before_quantity = item.quantity_cut
+    item.quantity_cut = new_quantity
+    next_extra = max(item.quantity_cut - item.quantity_requested, 0)
+    quantity_extra_delta = next_extra - previous_extra
+
+    _add_production_event(
+        db,
+        order=order,
+        item=item,
+        event_type=ProductionEventType.CUT_REGISTERED,
+        stage="cut",
+        quantity=event_quantity,
+        notes=notes,
+        user=user,
+        before_quantity=before_quantity,
+        after_quantity=item.quantity_cut,
+    )
+
+    if quantity_extra_delta > 0:
+        stock_item = get_or_create_piece_stock_item_for_order_item(db, item)
+        register_stock_movement(
+            db,
+            stock_item,
+            movement_type=StockMovementType.EXCESS_CUT,
+            quantity=Decimal(quantity_extra_delta),
+            reference_type="order_item",
+            reference_id=item.id,
+            notes=notes,
+        )
+
+    _sync_order_production_snapshot(db, order, event_quantity, user)
+    sync_order_items_delivery_status(order)
 
 
 def _get_order_item_or_404(order: Order, item_id: int) -> OrderItem:
@@ -958,7 +1465,7 @@ def _ensure_order_is_not_in_closed_weekly_closing(db: Session, order: Order) -> 
     closing_status = db.scalar(
         select(WeeklyClosing.status).where(WeeklyClosing.id == order.weekly_closing_id)
     )
-    if closing_status == WeeklyClosingStatus.CLOSED:
+    if closing_status in {WeeklyClosingStatus.CLOSED, WeeklyClosingStatus.PAID}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Esta OS pertence a um fechamento semanal já fechado.",
@@ -967,45 +1474,6 @@ def _ensure_order_is_not_in_closed_weekly_closing(db: Session, order: Order) -> 
 
 def _money(value: Decimal) -> Decimal:
     return value.quantize(MONEY_QUANTIZER)
-
-
-def _validate_print_registration(order: Order, payload: PrintRegister) -> None:
-    if order.production_status not in {
-        ProductionStatus.CUT_DONE,
-        ProductionStatus.IN_PRINT,
-    }:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Printing is only allowed when production status is cut_done or in_print",
-        )
-    if order.quantity_cut == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot register printing before cut",
-        )
-    print_limit = min(order.quantity_cut, order.quantity_requested)
-    if order.quantity_printed + payload.quantity > print_limit:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot print more than the order quantity available after cut",
-        )
-    if not _has_printing(order):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot register printing because this order has no serigrafia service",
-        )
-
-    product_name = _normalized_product_name(order.product.name)
-    if product_name == "casaco" and payload.print_type != "front":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Casaco only allows front printing",
-        )
-    if _requires_printing_exception(product_name) and not order.allow_printing_exception:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This product requires allow_printing_exception to register printing",
-        )
 
 
 def _validate_item_print_registration(
@@ -1047,39 +1515,6 @@ def _validate_item_print_registration(
         )
 
 
-def _validate_sewing_registration(
-    order: Order,
-    payload: SewingRegister,
-    has_printing: bool,
-) -> None:
-    allowed_statuses = (
-        {ProductionStatus.PRINT_DONE, ProductionStatus.IN_SEWING}
-        if has_printing
-        else {ProductionStatus.CUT_DONE, ProductionStatus.IN_SEWING}
-    )
-    if order.production_status not in allowed_statuses:
-        expected = "print_done or in_sewing" if has_printing else "cut_done or in_sewing"
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Sewing is only allowed when production status is {expected}",
-        )
-    if has_printing and order.quantity_sewn + payload.quantity > order.quantity_printed:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot sew more than the printed quantity",
-        )
-    sewing_limit = (
-        order.quantity_printed
-        if has_printing
-        else min(order.quantity_cut, order.quantity_requested)
-    )
-    if order.quantity_sewn + payload.quantity > sewing_limit:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot sew more than the order quantity available for sewing",
-        )
-
-
 def _validate_item_sewing_registration(item: OrderItem, payload: SewingRegister) -> None:
     if not _item_has_sewing(item) or item.sewing_mode != SewingMode.INTERNAL:
         raise HTTPException(
@@ -1090,11 +1525,6 @@ def _validate_item_sewing_registration(item: OrderItem, payload: SewingRegister)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Nao e possivel registrar confeccao antes do corte do item.",
-        )
-    if _item_has_printing(item) and item.quantity_printed < item.quantity_requested:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Nao e possivel registrar confeccao antes de concluir a serigrafia do item.",
         )
     sewing_limit = (
         min(item.quantity_printed, item.quantity_requested)
@@ -1107,6 +1537,15 @@ def _validate_item_sewing_registration(item: OrderItem, payload: SewingRegister)
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Quantidade confeccionada excede o saldo do item. Faltam confeccionar {remaining}.",
         )
+
+
+def _sync_order_status_after_quantity_update(db: Session, order: Order) -> None:
+    if order.production_status == ProductionStatus.CANCELLED:
+        return
+
+    _sync_order_snapshot_from_items(order)
+    next_status = _derive_order_status_from_items(order)
+    _set_order_aggregate_status(db, order, next_status, None)
 
 
 def _validate_outsourcing_stage(order: Order) -> None:
@@ -1217,66 +1656,130 @@ def _append_note(current_notes: str | None, new_note: str) -> str:
     return f"{current_notes}\n{new_note}" if current_notes else new_note
 
 
+def _clean_required_text(value: str | None) -> str | None:
+    cleaned = _clean_optional_text(value)
+    return cleaned or None
+
+
+def _clean_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = " ".join(value.split())
+    return cleaned or None
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _has_printing(order: Order) -> bool:
-    return any(
-        order_service.service.type == "serigrafia"
-        for order_service in order.services
-    )
-
-
 def _item_has_printing(item: OrderItem) -> bool:
     return any(
-        item_service.service.type == "serigrafia"
+        _service_matches(item_service.service, "serigrafia", {"dtf"})
         for item_service in item.services
     )
 
 
 def _item_has_cut(item: OrderItem) -> bool:
-    return any(item_service.service.type == "corte" for item_service in item.services)
+    return any(
+        _service_matches(item_service.service, "corte", set())
+        for item_service in item.services
+    )
 
 
 def _item_has_sewing(item: OrderItem) -> bool:
-    return any(item_service.service.type == "confeccao" for item_service in item.services)
+    return any(
+        _service_matches(item_service.service, "confeccao", {"confec"})
+        for item_service in item.services
+    )
+
+
+def _service_matches(service: Service, service_type: str, aliases: set[str]) -> bool:
+    service_type_value = _normalized_product_name(service.type)
+    service_name_value = _normalized_product_name(service.name)
+    normalized_type = _normalized_product_name(service_type)
+    return (
+        service_type_value == normalized_type
+        or normalized_type in service_name_value
+        or any(alias in service_name_value for alias in aliases)
+    )
 
 
 def _sync_order_production_snapshot(
     db: Session,
     order: Order,
     quantity: int | None,
+    user: User | None = None,
 ) -> None:
     order.quantity_cut = sum(item.quantity_cut for item in order.items)
     order.quantity_printed = sum(item.quantity_printed for item in order.items)
     order.quantity_sewn = sum(item.quantity_sewn for item in order.items)
-    order.quantity_extra = 0
+    order.quantity_extra = sum(
+        max(item.quantity_cut - item.quantity_requested, 0)
+        for item in order.items
+    )
 
     next_status = _derive_order_status_from_items(order)
-    if next_status != order.production_status and _can_advance_status(
-        order.production_status,
-        next_status,
-    ):
-        _change_status(db, order, next_status, quantity)
+    _set_order_aggregate_status(db, order, next_status, quantity, user)
 
 
 def _derive_order_status_from_items(order: Order) -> ProductionStatus:
     if not order.items:
         return order.production_status
-    if all(_item_is_complete(item, order) for item in order.items):
+    if order.production_status == ProductionStatus.CANCELLED:
+        return ProductionStatus.CANCELLED
+    if all(item.delivery_status == DeliveryStatus.DELIVERED for item in order.items):
+        return ProductionStatus.DELIVERED
+    if len(order.items) == 1:
+        return _derive_single_item_status(order, order.items[0])
+
+    complete_items = [
+        item for item in order.items
+        if _item_is_complete(item, order)
+    ]
+    if len(complete_items) == len(order.items):
         return ProductionStatus.READY
-    if any(item.quantity_sewn > 0 for item in order.items):
+    if complete_items:
+        return ProductionStatus.PARTIAL_READY
+
+    item_statuses = {
+        _derive_single_item_status(order, item)
+        for item in order.items
+    }
+    active_statuses = {
+        item_status
+        for item_status in item_statuses
+        if item_status != ProductionStatus.CREATED
+    }
+    if len(active_statuses) > 1:
+        return ProductionStatus.MIXED
+    if active_statuses:
+        return ProductionStatus.IN_PROGRESS
+    return ProductionStatus.CREATED
+
+
+def _derive_single_item_status(order: Order, item: OrderItem) -> ProductionStatus:
+    if _item_is_complete(item, order):
+        return ProductionStatus.READY
+    if item.sewing_mode == SewingMode.OUTSOURCED:
+        active_outsourcings = [
+            outsourcing
+            for outsourcing in order.outsourcings
+            if outsourcing.order_item_id == item.id
+            and outsourcing.status != OutsourcingStatus.CANCELLED
+        ]
+        if any(outsourcing.quantity_returned > 0 for outsourcing in active_outsourcings):
+            return ProductionStatus.RETURNED
+        if active_outsourcings:
+            return ProductionStatus.OUTSOURCED
+    if item.quantity_sewn > 0:
         return ProductionStatus.IN_SEWING
-    print_items = [item for item in order.items if _item_has_printing(item)]
-    if print_items and all(item.quantity_printed >= item.quantity_requested for item in print_items):
+    if _item_has_printing(item) and item.quantity_printed >= item.quantity_requested:
         return ProductionStatus.PRINT_DONE
-    if any(item.quantity_printed > 0 for item in print_items):
+    if _item_has_printing(item) and item.quantity_printed > 0:
         return ProductionStatus.IN_PRINT
-    cut_items = [item for item in order.items if _item_has_cut(item)]
-    if cut_items and all(item.quantity_cut >= item.quantity_requested for item in cut_items):
+    if _item_has_cut(item) and item.quantity_cut >= item.quantity_requested:
         return ProductionStatus.CUT_DONE
-    if any(item.quantity_cut > 0 for item in cut_items):
+    if _item_has_cut(item) and item.quantity_cut > 0:
         return ProductionStatus.IN_CUT
     return ProductionStatus.CREATED
 
@@ -1326,6 +1829,32 @@ def _available_item_outsourcing_quantity(item: OrderItem) -> int:
     return item.quantity_requested
 
 
+def _set_order_aggregate_status(
+    db: Session,
+    order: Order,
+    next_status: ProductionStatus,
+    quantity: int | None,
+    user: User | None = None,
+) -> None:
+    if order.production_status in {ProductionStatus.CANCELLED, ProductionStatus.DELIVERED}:
+        return
+    if next_status == order.production_status:
+        return
+
+    previous_status = order.production_status
+    order.production_status = next_status
+    _add_production_event(
+        db,
+        order=order,
+        item=None,
+        event_type=ProductionEventType.STATUS_CHANGED,
+        quantity=quantity,
+        user=user,
+        from_status=previous_status,
+        to_status=next_status,
+    )
+
+
 def _can_advance_status(
     current_status: ProductionStatus,
     next_status: ProductionStatus,
@@ -1354,14 +1883,14 @@ def _change_status(
         )
 
     order.production_status = next_status
-    db.add(
-        ProductionEvent(
-            order_id=order.id,
-            event_type=ProductionEventType.STATUS_CHANGED,
-            quantity=quantity,
-            from_status=previous_status,
-            to_status=next_status,
-        )
+    _add_production_event(
+        db,
+        order=order,
+        item=None,
+        event_type=ProductionEventType.STATUS_CHANGED,
+        quantity=quantity,
+        from_status=previous_status,
+        to_status=next_status,
     )
 
 

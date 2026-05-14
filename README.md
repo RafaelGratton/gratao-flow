@@ -10,11 +10,11 @@ Defina uma `SECRET_KEY` forte e as credenciais iniciais do admin antes de subir 
 
 ```bash
 ENVIRONMENT=development
-SECRET_KEY=change_me_generate_a_strong_random_secret
+SECRET_KEY=replace-with-a-strong-random-secret
 ADMIN_EMAIL=admin@gratao.local
-ADMIN_PASSWORD=change_me_strong_password
+ADMIN_PASSWORD=replace-with-a-strong-admin-password
 ADMIN_NAME=Administrador
-POSTGRES_PASSWORD=senha_postgres_local_123
+POSTGRES_PASSWORD=replace-with-a-strong-postgres-password
 CORS_ORIGINS=http://localhost:3000
 ```
 
@@ -24,7 +24,7 @@ docker compose -f docker/docker-compose.yml up --build -d
 
 O backend executa as migrations e o seed base automaticamente ao iniciar. A API usa `SECRET_KEY` para assinar JWTs, e o seed cria o admin inicial usando `ADMIN_EMAIL` e `ADMIN_PASSWORD`; se alguma dessas variaveis nao estiver definida, a inicializacao falha claramente.
 
-O Docker Compose local usa a senha fixa `senha_postgres_local_123` para o usuario `gratao`. Se houver erro de autenticacao por volume antigo, resete apenas o banco local de desenvolvimento:
+O Docker Compose local usa `POSTGRES_PASSWORD` para o usuario `gratao`. Se houver erro de autenticacao por volume antigo, resete apenas o banco local de desenvolvimento:
 
 ```powershell
 docker compose -f docker\docker-compose.yml down -v
@@ -45,10 +45,10 @@ Variaveis obrigatorias do backend:
 
 ```bash
 ENVIRONMENT=production
-SECRET_KEY=change_me_generate_a_strong_random_secret
+SECRET_KEY=replace-with-a-strong-random-secret
 DATABASE_URL=postgresql+psycopg://user:password@host:5432/database
 ADMIN_EMAIL=admin@seudominio.com
-ADMIN_PASSWORD=change_me_strong_password
+ADMIN_PASSWORD=replace-with-a-strong-admin-password
 ADMIN_NAME=Administrador
 CORS_ORIGINS=https://seu-frontend.example.com
 ```

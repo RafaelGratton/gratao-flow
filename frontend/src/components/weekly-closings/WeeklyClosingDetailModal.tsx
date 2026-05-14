@@ -1,38 +1,46 @@
 "use client";
 
 import { X } from "lucide-react";
+import type { Employee } from "@/components/employees/types";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import type { WeeklyClosing } from "@/components/weekly-closings/types";
+import type { WeeklyClosing, WeeklyClosingStatus } from "@/components/weekly-closings/types";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 
 type Props = {
   closing: WeeklyClosing | null;
+  employees: Employee[];
   onClose: () => void;
 };
 
+const statusLabels: Record<WeeklyClosingStatus, string> = {
+  open: "Aberto",
+  closed: "Fechado",
+  paid: "Pago"
+};
+
+const hourFields: Array<[keyof WeeklyClosing, string]> = [
+  ["total_gross_hours", "Horas brutas"],
+  ["total_break_hours", "Intervalos"],
+  ["total_net_hours", "Horas liquidas"],
+  ["total_regular_hours", "Horas normais"],
+  ["total_overtime_hours", "Horas extras"]
+];
+
 const moneyFields: Array<[keyof WeeklyClosing, string]> = [
-  ["total_invoiced", "Faturado"],
-  ["total_received", "Recebido"],
-  ["total_pending", "Pendente"],
-  ["total_outsourcing_customer", "Terceirização cliente"],
-  ["total_outsourcing_payout", "Repasse terceirização"],
-  ["total_outsourcing_profit", "Lucro terceirização"],
-  ["total_payout_paid", "Repasses pagos"],
-  ["total_payout_pending", "Repasses pendentes"],
-  ["gross_result", "Resultado bruto"]
+  ["total_base_amount", "Total base"],
+  ["total_overtime_amount", "Total horas extras"],
+  ["discounts", "Descontos"],
+  ["advances", "Adiantamentos"],
+  ["total_payable", "Total a pagar"]
 ];
 
-const quantityFields: Array<[keyof WeeklyClosing, string]> = [
-  ["total_orders", "Total OS"],
-  ["total_pieces_requested", "Pecas solicitadas"],
-  ["total_pieces_cut", "Pecas cortadas"],
-  ["total_pieces_printed", "Pecas estampadas"],
-  ["total_pieces_sewn", "Pecas costuradas"]
-];
-
-export function WeeklyClosingDetailModal({ closing, onClose }: Props) {
+export function WeeklyClosingDetailModal({ closing, employees, onClose }: Props) {
   if (!closing) return null;
+
+  const employeeName = closing.employee_id
+    ? employees.find((employee) => employee.id === closing.employee_id)?.name ?? `#${closing.employee_id}`
+    : "Geral";
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/35 p-4">
@@ -42,7 +50,7 @@ export function WeeklyClosingDetailModal({ closing, onClose }: Props) {
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-accent-dark">
               {closing.start_date} a {closing.end_date}
             </p>
-            <h2 className="mt-1 text-lg font-black text-ink">Detalhe do fechamento</h2>
+            <h2 className="mt-1 text-lg font-black text-ink">{employeeName}</h2>
           </div>
           <button
             type="button"
@@ -54,16 +62,26 @@ export function WeeklyClosingDetailModal({ closing, onClose }: Props) {
         </div>
         <div className="max-h-[calc(90vh-76px)] space-y-5 overflow-y-auto p-5">
           <div className="flex flex-wrap items-center gap-3">
-            <StatusBadge label={closing.status === "closed" ? "Fechado" : "Aberto"} status={closing.status === "closed" ? "done" : "active"} />
+            <StatusBadge
+              label={statusLabels[closing.status]}
+              status={closing.status === "paid" ? "done" : closing.status === "closed" ? "warning" : "active"}
+            />
             <span className="text-sm font-semibold text-muted">
               Fechado em: {closing.closed_at ? formatDateTime(closing.closed_at) : "Ainda aberto"}
             </span>
+            <span className="text-sm font-semibold text-muted">
+              Pago em: {closing.paid_at ? formatDateTime(closing.paid_at) : "Ainda nao pago"}
+            </span>
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            {quantityFields.map(([field, label]) => (
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-md border border-line bg-[#FCFAF6] p-4">
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Dias trabalhados</p>
+              <p className="mt-2 text-2xl font-black text-ink">{closing.days_worked}</p>
+            </div>
+            {hourFields.map(([field, label]) => (
               <div key={field} className="rounded-md border border-line bg-[#FCFAF6] p-4">
                 <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">{label}</p>
-                <p className="mt-2 text-2xl font-black text-ink">{closing[field]}</p>
+                <p className="mt-2 text-2xl font-black text-ink">{String(closing[field])}h</p>
               </div>
             ))}
           </div>

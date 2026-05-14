@@ -8,6 +8,7 @@ from app.db.base import Base
 from app.models.enums import (
     DeliveryStatus,
     FinancialStatus,
+    OperationalPriority,
     PaymentMethod,
     PrintType,
     ProductionEventType,
@@ -142,7 +143,17 @@ class OrderItem(Base):
     quantity_printed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     quantity_sewn: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     quantity_delivered: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    operational_priority: Mapped[OperationalPriority] = mapped_column(
+        Enum(
+            OperationalPriority,
+            name="operational_priority",
+            values_callable=lambda enum_class: [item.value for item in enum_class],
+        ),
+        default=OperationalPriority.NORMAL,
+        nullable=False,
+    )
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    available_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     delivery_status: Mapped[DeliveryStatus] = mapped_column(
         Enum(
             DeliveryStatus,
@@ -199,7 +210,12 @@ class DeliveryHistory(Base):
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), nullable=False)
     order_item_id: Mapped[int] = mapped_column(ForeignKey("order_items.id"), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    user_name_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
     responsible: Mapped[str] = mapped_column(String(255), nullable=False)
+    picked_up_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    pickup_document: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    delivery_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     delivered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -210,6 +226,7 @@ class DeliveryHistory(Base):
 
     order_item = relationship("OrderItem", back_populates="delivery_history")
     order = relationship("Order")
+    user = relationship("User")
 
 
 class OrderItemService(Base):
@@ -270,8 +287,14 @@ class ProductionEvent(Base):
         ),
         nullable=False,
     )
+    stage: Mapped[str | None] = mapped_column(String(50), nullable=True)
     quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    before_quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    after_quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    user_name_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
     from_status: Mapped[ProductionStatus | None] = mapped_column(
         Enum(
             ProductionStatus,
@@ -294,3 +317,4 @@ class ProductionEvent(Base):
 
     order = relationship("Order", back_populates="production_events")
     order_item = relationship("OrderItem", back_populates="production_events")
+    user = relationship("User")

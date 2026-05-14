@@ -10,7 +10,7 @@ import { Controller, type Resolver, useFieldArray, useForm } from "react-hook-fo
 import { z } from "zod";
 import { ClientSelect } from "@/components/clients/ClientSelect";
 import type { Client } from "@/components/clients/types";
-import type { CatalogItem, OrderDetails, SewingMode } from "@/components/orders/types";
+import type { CatalogItem, OperationalPriority, OrderDetails, SewingMode } from "@/components/orders/types";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -38,6 +38,7 @@ const itemSchema = z.object({
     .optional()
     .transform((value) => value?.trim() ?? ""),
   quantity_requested: z.coerce.number().int().positive("Informe uma quantidade valida."),
+  operational_priority: z.enum(["normal", "urgent", "critical"]).default("normal"),
   sewing_mode: z.enum(["internal", "outsourced"]).default("internal"),
   service_ids: z
     .array(z.coerce.number().int().positive())
@@ -59,6 +60,7 @@ type FormInput = {
     size_id: string;
     color: string;
     quantity_requested: number;
+    operational_priority: OperationalPriority;
     sewing_mode: SewingMode;
     service_ids: number[];
     notes: string;
@@ -86,6 +88,7 @@ const emptyItem = () => ({
   size_id: "",
   color: "",
   quantity_requested: 1,
+  operational_priority: "normal" as OperationalPriority,
   sewing_mode: "internal" as SewingMode,
   service_ids: [],
   notes: ""
@@ -208,6 +211,7 @@ export function OrderForm() {
             size_id: item.size_id,
             color: item.color,
             quantity_requested: item.quantity_requested,
+            operational_priority: item.operational_priority,
             sewing_mode:
               item.sewing_mode === "outsourced"
                 ? "outsourced"
@@ -439,6 +443,24 @@ export function OrderForm() {
                     min={1}
                     error={itemErrors?.quantity_requested?.message}
                     {...register(`items.${index}.quantity_requested`)}
+                  />
+                  <Controller
+                    control={control}
+                    name={`items.${index}.operational_priority`}
+                    render={({ field: priorityField }) => (
+                      <SelectField
+                        label="Prioridade"
+                        name={priorityField.name}
+                        value={String(priorityField.value ?? "normal")}
+                        onBlur={priorityField.onBlur}
+                        onChange={(event) => priorityField.onChange(event.target.value)}
+                        error={itemErrors?.operational_priority?.message}
+                      >
+                        <option value="normal">Normal</option>
+                        <option value="urgent">Urgente</option>
+                        <option value="critical">Critico</option>
+                      </SelectField>
+                    )}
                   />
                 </div>
 

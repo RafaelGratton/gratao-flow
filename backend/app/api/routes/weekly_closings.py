@@ -1,16 +1,15 @@
 from datetime import date, datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import Date, cast, func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
-from app.models.enums import PayoutStatus, WeeklyClosingStatus
-from app.models.order import Order, OrderPayment
-from app.models.outsourcing import OrderOutsourcing
+from app.models.employee import Employee, EmployeeWorkLog
+from app.models.enums import EmployeePaymentStatus, WeeklyClosingStatus
 from app.models.user import User
 from app.models.weekly_closing import WeeklyClosing
 from app.schemas.weekly_closing import WeeklyClosingCreate, WeeklyClosingRead
@@ -26,23 +25,28 @@ def create_weekly_closing(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[User, Depends(get_current_user)],
 ) -> WeeklyClosing:
-    _ensure_period_does_not_overlap(db, payload.start_date, payload.end_date)
+    employee = db.get(Employee, payload.employee_id)
+    if employee is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+    _ensure_period_does_not_overlap(db, payload.employee_id, payload.start_date, payload.end_date)
 
-    totals = _calculate_totals(db, payload.start_date, payload.end_date)
+    work_logs = _work_logs_in_period(db, payload.employee_id, payload.start_date, payload.end_date)
+    totals = _calculate_employee_totals(work_logs, payload.discounts, payload.advances)
     closing = WeeklyClosing(
+        employee_id=payload.employee_id,
         start_date=payload.start_date,
         end_date=payload.end_date,
         notes=payload.notes,
         status=WeeklyClosingStatus.OPEN,
         **totals,
+        **_legacy_zero_totals(),
     )
 
     db.add(closing)
     db.flush()
 
-    orders = _orders_in_period(db, payload.start_date, payload.end_date)
-    for order in orders:
-        order.weekly_closing_id = closing.id
+    for work_log in work_logs:
+        work_log.weekly_closing_id = closing.id
 
     db.commit()
     db.refresh(closing)
@@ -52,8 +56,12 @@ def create_weekly_closing(
 @router.get("", response_model=list[WeeklyClosingRead])
 def list_weekly_closings(
     db: Annotated[Session, Depends(get_db)],
+    employee_id: int | None = None,
 ) -> list[WeeklyClosing]:
-    query = select(WeeklyClosing).order_by(WeeklyClosing.start_date.desc(), WeeklyClosing.id.desc())
+    query = select(WeeklyClosing)
+    if employee_id is not None:
+        query = query.where(WeeklyClosing.employee_id == employee_id)
+    query = query.order_by(WeeklyClosing.start_date.desc(), WeeklyClosing.id.desc())
     return list(db.scalars(query))
 
 
@@ -71,7 +79,7 @@ def close_weekly_closing(
     db: Annotated[Session, Depends(get_db)],
 ) -> WeeklyClosing:
     closing = _get_weekly_closing_or_404(db, closing_id)
-    if closing.status == WeeklyClosingStatus.CLOSED:
+    if closing.status in {WeeklyClosingStatus.CLOSED, WeeklyClosingStatus.PAID}:
         return closing
 
     closing.status = WeeklyClosingStatus.CLOSED
@@ -81,90 +89,106 @@ def close_weekly_closing(
     return closing
 
 
-def _ensure_period_does_not_overlap(db: Session, start_date: date, end_date: date) -> None:
+@router.post("/{closing_id}/pay", response_model=WeeklyClosingRead)
+def pay_weekly_closing(
+    closing_id: int,
+    db: Annotated[Session, Depends(get_db)],
+) -> WeeklyClosing:
+    closing = _get_weekly_closing_or_404(db, closing_id)
+    if closing.status == WeeklyClosingStatus.PAID:
+        return closing
+
+    now = datetime.now(timezone.utc)
+    closing.status = WeeklyClosingStatus.PAID
+    if closing.closed_at is None:
+        closing.closed_at = now
+    closing.paid_at = now
+    for work_log in closing.work_logs:
+        work_log.payment_status = EmployeePaymentStatus.PAID
+        work_log.paid_at = now
+
+    db.commit()
+    db.refresh(closing)
+    return closing
+
+
+def _ensure_period_does_not_overlap(
+    db: Session,
+    employee_id: int,
+    start_date: date,
+    end_date: date,
+) -> None:
     query = select(WeeklyClosing.id).where(
+        WeeklyClosing.employee_id == employee_id,
         WeeklyClosing.start_date <= end_date,
         WeeklyClosing.end_date >= start_date,
     )
     if db.scalar(query) is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Periodo sobrepoe outro fechamento semanal existente.",
+            detail="Periodo sobrepoe outro fechamento semanal deste funcionario.",
         )
 
 
-def _calculate_totals(db: Session, start_date: date, end_date: date) -> dict[str, Any]:
-    order_totals = _one(
-        db.execute(
-            select(
-                func.count(Order.id),
-                func.coalesce(func.sum(Order.quantity_requested), 0),
-                func.coalesce(func.sum(Order.quantity_cut), 0),
-                func.coalesce(func.sum(Order.quantity_printed), 0),
-                func.coalesce(func.sum(Order.quantity_sewn), 0),
-                func.coalesce(func.sum(Order.total_amount), 0),
-                func.coalesce(func.sum(Order.amount_due), 0),
-            ).where(_date_between(Order.created_at, start_date, end_date))
+def _work_logs_in_period(
+    db: Session,
+    employee_id: int,
+    start_date: date,
+    end_date: date,
+) -> list[EmployeeWorkLog]:
+    query = (
+        select(EmployeeWorkLog)
+        .where(
+            EmployeeWorkLog.employee_id == employee_id,
+            EmployeeWorkLog.work_date >= start_date,
+            EmployeeWorkLog.work_date <= end_date,
         )
+        .order_by(EmployeeWorkLog.work_date)
     )
-    total_received = _money(
-        db.scalar(
-            select(func.coalesce(func.sum(OrderPayment.amount), 0)).where(
-                _date_between(OrderPayment.paid_at, start_date, end_date)
-            )
-        )
-    )
-    outsourcing_totals = _one(
-        db.execute(
-            select(
-                func.coalesce(func.sum(OrderOutsourcing.customer_total), 0),
-                func.coalesce(func.sum(OrderOutsourcing.outsourcer_total), 0),
-                func.coalesce(func.sum(OrderOutsourcing.profit_total), 0),
-            ).where(_date_between(OrderOutsourcing.sent_at, start_date, end_date))
-        )
-    )
-    total_payout_paid = _money(
-        db.scalar(
-            select(func.coalesce(func.sum(OrderOutsourcing.outsourcer_total), 0)).where(
-                OrderOutsourcing.payout_status == PayoutStatus.PAID,
-                OrderOutsourcing.paid_at.is_not(None),
-                _date_between(OrderOutsourcing.paid_at, start_date, end_date),
-            )
-        )
-    )
-    total_payout_pending = _money(
-        db.scalar(
-            select(func.coalesce(func.sum(OrderOutsourcing.outsourcer_total), 0)).where(
-                OrderOutsourcing.payout_status == PayoutStatus.PENDING,
-                _date_between(OrderOutsourcing.sent_at, start_date, end_date),
-            )
-        )
-    )
+    return list(db.scalars(query))
 
-    total_outsourcing_profit = _money(outsourcing_totals[2])
-    gross_result = _money(total_received + total_outsourcing_profit - total_payout_paid)
+
+def _calculate_employee_totals(
+    work_logs: list[EmployeeWorkLog],
+    discounts: Decimal,
+    advances: Decimal,
+) -> dict[str, Any]:
+    total_base = _sum_money(log.base_amount for log in work_logs)
+    total_overtime = _sum_money(log.overtime_amount for log in work_logs)
+    total_payable = _money(total_base + total_overtime - discounts - advances)
 
     return {
-        "total_orders": order_totals[0],
-        "total_pieces_requested": order_totals[1],
-        "total_pieces_cut": order_totals[2],
-        "total_pieces_printed": order_totals[3],
-        "total_pieces_sewn": order_totals[4],
-        "total_invoiced": _money(order_totals[5]),
-        "total_received": total_received,
-        "total_pending": _money(order_totals[6]),
-        "total_outsourcing_customer": _money(outsourcing_totals[0]),
-        "total_outsourcing_payout": _money(outsourcing_totals[1]),
-        "total_outsourcing_profit": total_outsourcing_profit,
-        "total_payout_paid": total_payout_paid,
-        "total_payout_pending": total_payout_pending,
-        "gross_result": gross_result,
+        "days_worked": sum(1 for log in work_logs if log.net_hours > 0),
+        "total_gross_hours": _sum_hours(log.gross_hours for log in work_logs),
+        "total_break_hours": _sum_hours(log.break_hours for log in work_logs),
+        "total_net_hours": _sum_hours(log.net_hours for log in work_logs),
+        "total_regular_hours": _sum_hours(log.regular_hours for log in work_logs),
+        "total_overtime_hours": _sum_hours(log.overtime_hours for log in work_logs),
+        "total_base_amount": total_base,
+        "total_overtime_amount": total_overtime,
+        "discounts": _money(discounts),
+        "advances": _money(advances),
+        "total_payable": total_payable,
     }
 
 
-def _orders_in_period(db: Session, start_date: date, end_date: date) -> list[Order]:
-    query = select(Order).where(_date_between(Order.created_at, start_date, end_date))
-    return list(db.scalars(query))
+def _legacy_zero_totals() -> dict[str, Decimal | int]:
+    return {
+        "total_orders": 0,
+        "total_pieces_requested": 0,
+        "total_pieces_cut": 0,
+        "total_pieces_printed": 0,
+        "total_pieces_sewn": 0,
+        "total_invoiced": Decimal("0.00"),
+        "total_received": Decimal("0.00"),
+        "total_pending": Decimal("0.00"),
+        "total_outsourcing_customer": Decimal("0.00"),
+        "total_outsourcing_payout": Decimal("0.00"),
+        "total_outsourcing_profit": Decimal("0.00"),
+        "total_payout_paid": Decimal("0.00"),
+        "total_payout_pending": Decimal("0.00"),
+        "gross_result": Decimal("0.00"),
+    }
 
 
 def _get_weekly_closing_or_404(db: Session, closing_id: int) -> WeeklyClosing:
@@ -177,13 +201,13 @@ def _get_weekly_closing_or_404(db: Session, closing_id: int) -> WeeklyClosing:
     return closing
 
 
-def _date_between(column: Any, start_date: date, end_date: date) -> Any:
-    return cast(column, Date).between(start_date, end_date)
+def _sum_money(values) -> Decimal:
+    return _money(sum((Decimal(value or 0) for value in values), Decimal("0")))
 
 
-def _one(result: Any) -> Any:
-    return result.one()
+def _sum_hours(values) -> Decimal:
+    return _money(sum((Decimal(value or 0) for value in values), Decimal("0")))
 
 
 def _money(value: Decimal | int | None) -> Decimal:
-    return Decimal(value or 0).quantize(MONEY_QUANTIZER)
+    return Decimal(value or 0).quantize(MONEY_QUANTIZER, rounding=ROUND_HALF_UP)

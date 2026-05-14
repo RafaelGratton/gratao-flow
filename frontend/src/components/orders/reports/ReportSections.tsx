@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { formatCurrency, formatDateTime } from "@/lib/format";
+import type { ReportItem } from "./types";
 
 export function ReportGrid({ children }: { children: ReactNode }) {
   return <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{children}</div>;
@@ -65,6 +66,42 @@ export function ServicesList({
             </p>
           </div>
           <p className="font-black text-ink md:text-right">{formatCurrency(service.total_price)}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function ReportItemsList({ items }: { items: ReportItem[] }) {
+  if (items.length === 0) {
+    return <EmptyState title="Sem itens" description="Nenhum item foi vinculado a esta OS." />;
+  }
+
+  return (
+    <div className="space-y-3">
+      {items.map((item, index) => (
+        <div key={item.id} className="rounded-md border border-line bg-white p-3">
+          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">
+                Item {index + 1}
+              </p>
+              <p className="mt-1 font-black text-ink">{item.product.name}</p>
+              <p className="mt-1 text-sm text-muted">
+                Tamanho {item.size.label} / {item.color || "Sem cor"}
+              </p>
+            </div>
+            <p className="font-black text-ink">{item.quantity_requested} pecas</p>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-4">
+            <ReportField label="Cortada" value={item.quantity_cut} />
+            <ReportField label="Serigrafada" value={item.quantity_printed} />
+            <ReportField label="Costurada" value={item.quantity_sewn} />
+            <ReportField label="Entregue" value={item.quantity_delivered} />
+          </div>
+          <div className="mt-3">
+            <ServicesList services={item.services} />
+          </div>
         </div>
       ))}
     </div>

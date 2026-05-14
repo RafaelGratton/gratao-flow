@@ -26,6 +26,7 @@ function normalize(value: string) {
 export function PrintActionModal({ order, item, open, onClose, onUpdated }: PrintActionModalProps) {
   const [quantity, setQuantity] = useState("");
   const [printType, setPrintType] = useState<"front" | "front_back">("front");
+  const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +42,7 @@ export function PrintActionModal({ order, item, open, onClose, onUpdated }: Prin
     if (open) {
       setQuantity("");
       setPrintType("front");
+      setNotes("");
       setError(null);
     }
   }, [open, order?.id]);
@@ -72,7 +74,8 @@ export function PrintActionModal({ order, item, open, onClose, onUpdated }: Prin
         : `/orders/${order.id}/print`;
       const updated = await api.post<OrderDetails>(path, {
         quantity: Number(quantity),
-        print_type: printType
+        print_type: printType,
+        notes: notes.trim() || null
       });
       onUpdated(updated);
       onClose();
@@ -150,6 +153,14 @@ export function PrintActionModal({ order, item, open, onClose, onUpdated }: Prin
           {onlyFront ? (
             <p className="text-sm font-semibold text-muted">Casaco permite apenas serigrafia frente.</p>
           ) : null}
+          <label className="block space-y-2">
+            <span className="text-sm font-semibold text-ink">Observacao operacional</span>
+            <textarea
+              className="min-h-24 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink shadow-insetline transition focus:focus-ring"
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+            />
+          </label>
           {validation ? <p className="text-sm font-semibold text-danger">{validation}</p> : null}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={onClose}>

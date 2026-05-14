@@ -4,7 +4,7 @@ import { CheckCircle2, Clock3, Layers3, PlayCircle, Stamp } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OrderDetails, OrderItem, OrderSummary } from "@/components/orders/types";
 import { PrintActionModal } from "@/components/printing/PrintActionModal";
-import { getItemPrintingService, itemFlowLabel, itemNeedsStage, itemStageDone } from "@/components/production/helpers";
+import { getItemPrintingService, itemFlowLabel, itemNeedsStage } from "@/components/production/helpers";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
@@ -20,10 +20,15 @@ type PrintRow = {
 };
 
 function printStage(item: OrderItem): QueueStage {
-  if (item.quantity_cut === 0 || !itemStageDone(item, "cut")) return "waiting_cut";
   if (item.quantity_printed >= item.quantity_requested) return "done";
+  if (availableForPrint(item) <= 0) return "waiting_cut";
   if (item.quantity_printed > 0) return "active";
   return "ready";
+}
+
+function availableForPrint(item: OrderItem) {
+  const cut = Math.min(item.quantity_cut, item.quantity_requested);
+  return Math.max(cut - item.quantity_printed, 0);
 }
 
 function printServiceLabel(item: OrderItem) {
@@ -160,14 +165,15 @@ export function PrintingQueue() {
             <div className="divide-y divide-line/70">
               {rows.map((row) => {
                 const stage = printStage(row.item);
-                const remaining = Math.max(row.item.quantity_requested - row.item.quantity_printed, 0);
+                const available = availableForPrint(row.item);
+                const missingCut = Math.max(row.item.quantity_requested - row.item.quantity_cut, 0);
                 return (
                   <div key={`${row.order.id}-${row.item.id}`} className="grid gap-4 p-5 transition hover:bg-accent-soft/25 xl:grid-cols-[1.2fr_1fr_1fr_auto] xl:items-center">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-lg font-black text-ink">OS #{row.order.id}</span>
                         <Badge tone="accent">Item {row.itemNumber}</Badge>
-                        {stage === "waiting_cut" ? <Badge tone="warning">Aguardando corte</Badge> : null}
+                        {stage === "waiting_cut" ? <Badge tone="warning">Bloqueado por corte</Badge> : null}
                         {stage === "active" ? <Badge tone="accent">Em andamento</Badge> : null}
                       </div>
                       <p className="mt-1 text-sm font-semibold text-muted">{row.order.client.name}</p>
@@ -178,17 +184,20 @@ export function PrintingQueue() {
                     <div className="grid grid-cols-3 gap-3 rounded-md border border-line bg-[#FCFAF6] p-3">
                       <Metric label="Cortada" value={row.item.quantity_cut} />
                       <Metric label="DTF" value={row.item.quantity_printed} />
-                      <Metric label="Restante" value={remaining} />
+                      <Metric label="Disponivel DTF" value={available} />
                     </div>
                     <div className="space-y-2">
                       <p className="text-sm font-semibold text-ink">{printServiceLabel(row.item)}</p>
+                      {missingCut > 0 ? (
+                        <p className="text-xs font-semibold text-warning">Falta cortar {missingCut}</p>
+                      ) : null}
                       <p className="text-xs font-bold uppercase tracking-[0.12em] text-accent-dark">
                         {itemFlowLabel(row.item)}
                       </p>
                     </div>
                     <Button
                       type="button"
-                      disabled={stage !== "ready" && stage !== "active"}
+                      disabled={available <= 0}
                       onClick={() => setSelected(row)}
                     >
                       Registrar DTF

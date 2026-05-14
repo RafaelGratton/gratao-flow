@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_valid
 from app.models.enums import (
     DeliveryStatus,
     FinancialStatus,
+    OperationalPriority,
     PaymentMethod,
     PrintType,
     ProductionEventType,
@@ -14,6 +15,7 @@ from app.models.enums import (
     SewingMode,
 )
 from app.schemas.client import ClientRead
+from app.schemas.delivery import DeliveryHistoryRead
 from app.schemas.product import ProductRead
 from app.schemas.outsourcing import OrderOutsourcingRead
 from app.schemas.service import ServiceRead
@@ -47,6 +49,7 @@ class OrderItemCreate(BaseModel):
     size_id: int
     color: str
     quantity_requested: int = Field(gt=0)
+    operational_priority: OperationalPriority = OperationalPriority.NORMAL
     sewing_mode: SewingMode | None = None
     notes: str | None = None
     service_ids: list[int] = Field(min_length=1)
@@ -58,6 +61,7 @@ class OrderItemUpdate(BaseModel):
     size_id: int
     color: str
     quantity_requested: int = Field(gt=0)
+    operational_priority: OperationalPriority = OperationalPriority.NORMAL
     sewing_mode: SewingMode | None = None
     notes: str | None = None
     service_ids: list[int] = Field(min_length=1)
@@ -157,10 +161,13 @@ class OrderItemRead(BaseModel):
     quantity_printed: int
     quantity_sewn: int
     quantity_delivered: int
+    operational_priority: OperationalPriority
     delivered_at: datetime | None
+    available_since: datetime | None
     delivery_status: DeliveryStatus
     sewing_mode: SewingMode | None
     notes: str | None
+    delivery_history: list[DeliveryHistoryRead] = Field(default_factory=list)
     services: list[OrderItemServiceRead]
     created_at: datetime
 
@@ -193,8 +200,14 @@ class ProductionEventRead(BaseModel):
     id: int
     order_item_id: int | None
     event_type: ProductionEventType
+    stage: str | None
     quantity: int | None
+    before_quantity: int | None
+    after_quantity: int | None
+    reason: str | None
     notes: str | None
+    user_id: int | None
+    user_name_snapshot: str | None
     from_status: ProductionStatus | None = Field(default=None, serialization_alias="from")
     to_status: ProductionStatus | None = Field(default=None, serialization_alias="to")
     created_at: datetime
@@ -221,6 +234,45 @@ class PrintRegister(BaseModel):
 class SewingRegister(BaseModel):
     quantity: int = Field(gt=0)
     notes: str | None = None
+
+
+class OperationalEventRegister(BaseModel):
+    stage: str = Field(min_length=1, max_length=50)
+    quantity: int = Field(gt=0)
+    reason: str = Field(min_length=1, max_length=255)
+    notes: str | None = None
+
+
+class OperationalAdjustmentRegister(BaseModel):
+    stage: str = Field(pattern="^(cut|print|sew|delivered)$")
+    quantity_delta: int
+    reason: str = Field(min_length=1, max_length=255)
+    notes: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_quantity_delta(self) -> "OperationalAdjustmentRegister":
+        if self.quantity_delta == 0:
+            raise ValueError("quantity_delta cannot be zero")
+        return self
+
+
+class OperationalHistoryEntry(BaseModel):
+    source: str
+    event_type: str
+    label: str
+    order_id: int
+    order_item_id: int
+    stage: str | None = None
+    quantity: int | None = None
+    before_quantity: int | None = None
+    after_quantity: int | None = None
+    reason: str | None = None
+    notes: str | None = None
+    user_id: int | None = None
+    user_name: str | None = None
+    picked_up_by: str | None = None
+    pickup_document: str | None = None
+    created_at: datetime
 
 
 class OrderSummary(BaseModel):

@@ -1,5 +1,8 @@
 export type ProductionStatus =
   | "created"
+  | "in_progress"
+  | "partial_ready"
+  | "mixed"
   | "in_cut"
   | "cut_done"
   | "waiting_print"
@@ -19,6 +22,8 @@ export type FinancialStatus = "pending" | "partial" | "paid";
 export type DeliveryStatus = "pending" | "ready" | "partially_delivered" | "delivered";
 
 export type SewingMode = "internal" | "outsourced";
+
+export type OperationalPriority = "normal" | "urgent" | "critical";
 
 export type OutsourcingStatus =
   | "sent"
@@ -66,11 +71,28 @@ export type OrderItem = {
   quantity_printed: number;
   quantity_sewn: number;
   quantity_delivered: number;
+  operational_priority: OperationalPriority;
   delivered_at: string | null;
+  available_since: string | null;
   delivery_status: DeliveryStatus;
   sewing_mode: SewingMode | null;
   notes: string | null;
   created_at: string;
+  delivery_history: Array<{
+    id: number;
+    order_id: number;
+    order_item_id: number;
+    quantity: number;
+    user_id: number | null;
+    user_name_snapshot: string | null;
+    responsible: string;
+    picked_up_by: string | null;
+    pickup_document: string | null;
+    delivery_notes: string | null;
+    notes: string | null;
+    delivered_at: string;
+    created_at: string;
+  }>;
   services: Array<{
     id: number;
     service_id: number;
@@ -113,8 +135,14 @@ export type OrderDetails = OrderSummary & {
     id: number;
     order_item_id: number | null;
     event_type: string;
+    stage: string | null;
     quantity: number | null;
+    before_quantity: number | null;
+    after_quantity: number | null;
+    reason: string | null;
     notes: string | null;
+    user_id: number | null;
+    user_name_snapshot: string | null;
     from?: ProductionStatus | null;
     to?: ProductionStatus | null;
     created_at: string;

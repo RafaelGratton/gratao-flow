@@ -44,7 +44,7 @@ export function ReceivablesTable({ orders, loading, onAddPayment }: Props) {
             <table className="min-w-[1040px] w-full border-separate border-spacing-0 text-left text-sm">
               <thead>
                 <tr className="bg-[#FCFAF6] text-xs font-black uppercase tracking-[0.12em] text-muted">
-                  {["OS", "Cliente", "Produto", "Total", "Pago", "Pendente", "Status financeiro", "Acoes"].map(
+                  {["OS", "Cliente", "Itens", "Total", "Pago", "Pendente", "Status financeiro", "Acoes"].map(
                     (heading) => (
                       <th key={heading} className="border-b border-line px-4 py-3">
                         {heading}
@@ -60,7 +60,7 @@ export function ReceivablesTable({ orders, loading, onAddPayment }: Props) {
                     <tr key={order.id} className={needsAttention ? "bg-warning/5" : "transition hover:bg-accent-soft/20"}>
                       <td className="border-b border-line/70 px-4 py-4 font-black text-ink">#{order.id}</td>
                       <td className="border-b border-line/70 px-4 py-4 font-semibold text-ink">{order.client.name}</td>
-                      <td className="border-b border-line/70 px-4 py-4 text-muted">{order.product.name}</td>
+                      <td className="border-b border-line/70 px-4 py-4 text-muted">{itemSummary(order)}</td>
                       <td className="border-b border-line/70 px-4 py-4 font-bold text-ink">
                         {formatCurrency(order.total_amount)}
                       </td>
@@ -98,4 +98,10 @@ export function ReceivablesTable({ orders, loading, onAddPayment }: Props) {
       </CardContent>
     </Card>
   );
+}
+
+function itemSummary(order: OrderDetails) {
+  if (order.items.length === 0) return "-";
+  if (order.items.length === 1) return order.items[0].product.name;
+  return `${order.items.length} itens`;
 }
