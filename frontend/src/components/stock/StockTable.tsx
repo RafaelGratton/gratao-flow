@@ -6,16 +6,26 @@ import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Badge } from "@/components/ui/Badge";
 import { formatNumber } from "@/lib/format";
-import type { StockItem } from "./types";
+import { cn } from "@/lib/utils";
+import type { StockCategoryFilter, StockItem } from "./types";
 
 type Props = {
   items: StockItem[];
+  totalItems: number;
   loading: boolean;
+  categoryFilter: StockCategoryFilter;
+  onCategoryFilterChange: (filter: StockCategoryFilter) => void;
   onCreate: () => void;
   onMovement: (item: StockItem, mode: "entry" | "exit" | "adjust") => void;
   onHistory: (item: StockItem) => void;
   onDelete: (item: StockItem) => void;
 };
+
+const categoryFilters: Array<{ value: StockCategoryFilter; label: string }> = [
+  { value: "all", label: "Todos" },
+  { value: "material", label: "Materiais" },
+  { value: "piece", label: "Pecas" }
+];
 
 function categoryLabel(category: StockItem["category"]) {
   return category === "piece" ? "Peca" : "Material";
@@ -32,7 +42,17 @@ function statusFor(quantityValue: string) {
   return { label: "Em estoque", tone: "success" as const };
 }
 
-export function StockTable({ items, loading, onCreate, onMovement, onHistory, onDelete }: Props) {
+export function StockTable({
+  items,
+  totalItems,
+  loading,
+  categoryFilter,
+  onCategoryFilterChange,
+  onCreate,
+  onMovement,
+  onHistory,
+  onDelete
+}: Props) {
   return (
     <Card className="overflow-hidden">
       <CardHeader className="bg-white/70">
@@ -48,6 +68,26 @@ export function StockTable({ items, loading, onCreate, onMovement, onHistory, on
             Novo item
           </Button>
         </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {categoryFilters.map((filter) => {
+            const active = categoryFilter === filter.value;
+            return (
+              <button
+                key={filter.value}
+                type="button"
+                className={cn(
+                  "h-10 rounded-md border px-4 text-sm font-bold transition focus-visible:focus-ring",
+                  active
+                    ? "border-accent bg-accent-soft text-ink"
+                    : "border-line bg-white text-muted hover:border-accent/50 hover:text-ink"
+                )}
+                onClick={() => onCategoryFilterChange(filter.value)}
+              >
+                {filter.label}
+              </button>
+            );
+          })}
+        </div>
       </CardHeader>
       <CardContent className="p-0">
         {loading ? (
@@ -60,21 +100,27 @@ export function StockTable({ items, loading, onCreate, onMovement, onHistory, on
           <div className="p-5">
             <EmptyState
               icon={<PackagePlus size={20} />}
-              title="Nenhum item cadastrado"
-              description="Cadastre materiais ou pecas para controlar entradas, saidas e ajustes."
+              title={totalItems === 0 ? "Nenhum item cadastrado" : "Nenhum item neste filtro"}
+              description={
+                totalItems === 0
+                  ? "Cadastre materiais ou pecas para controlar entradas, saidas e ajustes."
+                  : "Altere o filtro para visualizar outros itens do estoque."
+              }
             >
-              <Button type="button" className="mt-5" onClick={onCreate}>
-                <Plus size={18} />
-                Novo item
-              </Button>
+              {totalItems === 0 ? (
+                <Button type="button" className="mt-5" onClick={onCreate}>
+                  <Plus size={18} />
+                  Novo item
+                </Button>
+              ) : null}
             </EmptyState>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-[1120px] w-full border-separate border-spacing-0 text-left text-sm">
+            <table className="min-w-[1020px] w-full border-separate border-spacing-0 text-left text-sm">
               <thead>
                 <tr className="bg-[#FCFAF6] text-xs font-black uppercase tracking-[0.12em] text-muted">
-                  {["Nome", "Categoria", "Produto/Tamanho", "Cor", "Unidade", "Quantidade", "Status", "Acoes"].map((heading) => (
+                  {["Nome", "Categoria", "Produto/Tamanho", "Cor", "Quantidade", "Status", "Acoes"].map((heading) => (
                     <th key={heading} className="border-b border-line px-4 py-3">
                       {heading}
                     </th>
@@ -94,7 +140,6 @@ export function StockTable({ items, loading, onCreate, onMovement, onHistory, on
                           : "-"}
                       </td>
                       <td className="border-b border-line/70 px-4 py-4 text-muted">{item.color || "-"}</td>
-                      <td className="border-b border-line/70 px-4 py-4 text-muted">{item.unit}</td>
                       <td className="border-b border-line/70 px-4 py-4 font-black text-ink">
                         {formatNumber(Number(item.quantity))}
                       </td>

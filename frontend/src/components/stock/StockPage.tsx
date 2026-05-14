@@ -6,7 +6,13 @@ import { StockItemModal } from "@/components/stock/StockItemModal";
 import { StockMovementModal } from "@/components/stock/StockMovementModal";
 import { StockSummaryCards } from "@/components/stock/StockSummaryCards";
 import { StockTable } from "@/components/stock/StockTable";
-import type { CatalogProduct, CatalogSize, StockItem, StockItemDetail } from "@/components/stock/types";
+import type {
+  CatalogProduct,
+  CatalogSize,
+  StockCategoryFilter,
+  StockItem,
+  StockItemDetail
+} from "@/components/stock/types";
 import { api } from "@/lib/api";
 
 type MovementMode = "entry" | "exit" | "adjust";
@@ -22,6 +28,7 @@ export function StockPage() {
   const [movementItem, setMovementItem] = useState<StockItem | null>(null);
   const [movementMode, setMovementMode] = useState<MovementMode | null>(null);
   const [historyItem, setHistoryItem] = useState<StockItem | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<StockCategoryFilter>("all");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,6 +66,9 @@ export function StockPage() {
     upsertItem(detail);
     setFeedback("Movimentacao registrada com sucesso.");
   }
+
+  const filteredItems =
+    categoryFilter === "all" ? items : items.filter((item) => item.category === categoryFilter);
 
   async function handleDelete(item: StockItem) {
     const confirmed = window.confirm(
@@ -100,8 +110,11 @@ export function StockPage() {
 
       <StockSummaryCards items={items} />
       <StockTable
-        items={items}
+        items={filteredItems}
+        totalItems={items.length}
         loading={loading}
+        categoryFilter={categoryFilter}
+        onCategoryFilterChange={setCategoryFilter}
         onCreate={() => setItemModalOpen(true)}
         onMovement={(item, mode) => {
           setMovementItem(item);

@@ -1,5 +1,7 @@
 export type StockCategory = "material" | "piece";
 
+export type StockCategoryFilter = "all" | StockCategory;
+
 export type CatalogProduct = {
   id: number;
   name: string;

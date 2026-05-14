@@ -25,7 +25,7 @@ class StockItemCreate(BaseModel):
     product_id: int | None = None
     size_id: int | None = None
     color: str | None = Field(default=None, max_length=100)
-    unit: str = Field(min_length=1, max_length=30)
+    unit: str = Field(default="unidade", min_length=1, max_length=30)
     quantity: StockDecimal = Decimal("0.00")
     notes: str | None = None
     is_active: bool = True

@@ -39,8 +39,7 @@ export function StockMovementModal({ item, mode, onClose, onSaved }: Props) {
 
   const helper = useMemo(() => {
     if (!item || !mode) return "";
-    if (mode === "adjust") return `Saldo atual: ${Number(item.quantity).toLocaleString("pt-BR")} ${item.unit}`;
-    return `Saldo atual: ${Number(item.quantity).toLocaleString("pt-BR")} ${item.unit}`;
+    return `Saldo atual: ${Number(item.quantity).toLocaleString("pt-BR")}`;
   }, [item, mode]);
 
   if (!open || !item || !mode) return null;

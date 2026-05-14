@@ -22,7 +22,6 @@ type FormState = {
   product_id: string;
   size_id: string;
   color: string;
-  unit: string;
   quantity: string;
   notes: string;
 };
@@ -33,7 +32,6 @@ const initialState: FormState = {
   product_id: "",
   size_id: "",
   color: "",
-  unit: "",
   quantity: "0",
   notes: ""
 };
@@ -59,7 +57,6 @@ export function StockItemModal({ open, products, sizes, onClose, onCreated }: Pr
   function validate() {
     if (!form.name.trim()) return "Informe o nome do item.";
     if (!form.category) return "Informe a categoria.";
-    if (!form.unit.trim()) return "Informe a unidade.";
     if (Number(form.quantity) < 0 || Number.isNaN(Number(form.quantity))) {
       return "A quantidade inicial deve ser maior ou igual a zero.";
     }
@@ -86,7 +83,6 @@ export function StockItemModal({ open, products, sizes, onClose, onCreated }: Pr
         product_id: form.category === "piece" ? Number(form.product_id) : null,
         size_id: form.category === "piece" ? Number(form.size_id) : null,
         color: form.color.trim() || null,
-        unit: form.unit.trim(),
         quantity: form.quantity,
         notes: form.notes.trim() || null
       });
@@ -173,9 +169,8 @@ export function StockItemModal({ open, products, sizes, onClose, onCreated }: Pr
             </label>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2">
             <Input label="Cor" value={form.color} onChange={(event) => update("color", event.target.value)} />
-            <Input label="Unidade" value={form.unit} onChange={(event) => update("unit", event.target.value)} placeholder="kg, m, unidade" />
             <Input label="Quantidade inicial" type="number" min="0" step="0.01" value={form.quantity} onChange={(event) => update("quantity", event.target.value)} />
           </div>
 
