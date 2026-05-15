@@ -144,7 +144,7 @@ export function EmployeeModal({ open, employee, onClose, onSaved }: Props) {
             <Input
               label="Horas padrao da diaria"
               type="number"
-              min="0.01"
+              min="0.25"
               step="0.25"
               value={form.standard_daily_hours}
               onChange={(event) => setForm((current) => ({ ...current, standard_daily_hours: event.target.value }))}
