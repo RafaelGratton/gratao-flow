@@ -5,7 +5,7 @@ from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, Numeric, Strin
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.enums import WeeklyClosingStatus
+from app.models.enums import PixKeyType, WeeklyClosingStatus
 
 
 class WeeklyClosing(Base):
@@ -26,6 +26,15 @@ class WeeklyClosing(Base):
     discounts: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     advances: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     total_payable: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    employee_pix_key_type: Mapped[PixKeyType | None] = mapped_column(
+        Enum(
+            PixKeyType,
+            name="employee_pix_key_type",
+            values_callable=lambda enum_class: [item.value for item in enum_class],
+        ),
+        nullable=True,
+    )
+    employee_pix_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     total_orders: Mapped[int] = mapped_column(Integer, nullable=False)
     total_pieces_requested: Mapped[int] = mapped_column(Integer, nullable=False)
     total_pieces_cut: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -66,4 +75,8 @@ class WeeklyClosing(Base):
 
     orders = relationship("Order", back_populates="weekly_closing")
     employee = relationship("Employee", back_populates="weekly_closings")
-    work_logs = relationship("EmployeeWorkLog", back_populates="weekly_closing")
+    work_logs = relationship(
+        "EmployeeWorkLog",
+        back_populates="weekly_closing",
+        order_by="EmployeeWorkLog.work_date",
+    )

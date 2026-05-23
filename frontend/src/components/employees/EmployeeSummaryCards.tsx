@@ -10,8 +10,11 @@ type Props = {
 
 export function EmployeeSummaryCards({ employees, workLogs }: Props) {
   const activeEmployees = employees.filter((employee) => employee.is_active).length;
-  const pendingLogs = workLogs.filter((log) => log.payment_status === "pending");
-  const pendingValue = pendingLogs.reduce((total, log) => total + Number(log.total_amount), 0);
+  const openLogs = workLogs.filter((log) => log.work_status === "open");
+  const pendingPaymentLogs = workLogs.filter(
+    (log) => log.work_status === "completed" && log.payment_status === "pending" && log.weekly_closing_id === null
+  );
+  const pendingValue = pendingPaymentLogs.reduce((total, log) => total + Number(log.total_amount), 0);
   const overtimeHours = workLogs.reduce((total, log) => total + Number(log.overtime_hours), 0);
 
   return (
@@ -24,14 +27,14 @@ export function EmployeeSummaryCards({ employees, workLogs }: Props) {
       />
       <StatCard
         label="Registros abertos"
-        value={pendingLogs.length}
-        detail="Dias ainda sem pagamento individual."
+        value={openLogs.length}
+        detail="Entradas ainda sem hora de saida."
         icon={<CalendarClock size={20} />}
       />
       <StatCard
         label="Valor pendente"
         value={formatCurrency(pendingValue)}
-        detail="Total aberto em ponto diario."
+        detail="Dias concluidos aguardando fechamento."
         icon={<Banknote size={20} />}
       />
       <StatCard

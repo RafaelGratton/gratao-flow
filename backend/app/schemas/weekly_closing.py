@@ -1,10 +1,10 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
-from app.models.enums import WeeklyClosingStatus
+from app.models.enums import PixKeyType, WeeklyClosingStatus
 
 MoneyDecimal = Annotated[
     Decimal,
@@ -35,6 +35,23 @@ class WeeklyClosingCreate(BaseModel):
         return self
 
 
+class WeeklyClosingWorkLogRead(BaseModel):
+    id: int
+    work_date: date
+    clock_in: time | None
+    clock_out: time | None
+    work_status: str
+    net_hours: HoursDecimal
+    overtime_hours: HoursDecimal
+    total_amount: MoneyDecimal
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("net_hours", "overtime_hours", "total_amount")
+    def serialize_decimal(self, value: Decimal) -> str:
+        return f"{value:.2f}"
+
+
 class WeeklyClosingRead(BaseModel):
     id: int
     employee_id: int | None
@@ -51,6 +68,8 @@ class WeeklyClosingRead(BaseModel):
     discounts: MoneyDecimal
     advances: MoneyDecimal
     total_payable: ResultMoneyDecimal
+    employee_pix_key_type: PixKeyType | None
+    employee_pix_key: str | None
     total_orders: int
     total_pieces_requested: int
     total_pieces_cut: int
@@ -70,6 +89,7 @@ class WeeklyClosingRead(BaseModel):
     paid_at: datetime | None = None
     notes: str | None
     created_at: datetime
+    work_logs: list[WeeklyClosingWorkLogRead] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 

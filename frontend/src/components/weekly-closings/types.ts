@@ -1,4 +1,5 @@
 export type WeeklyClosingStatus = "open" | "closed" | "paid";
+export type PixKeyType = "cpf" | "email" | "phone" | "random";
 
 export type WeeklyClosing = {
   id: number;
@@ -16,6 +17,8 @@ export type WeeklyClosing = {
   discounts: string;
   advances: string;
   total_payable: string;
+  employee_pix_key_type: PixKeyType | null;
+  employee_pix_key: string | null;
   total_orders: number;
   total_pieces_requested: number;
   total_pieces_cut: number;
@@ -35,6 +38,16 @@ export type WeeklyClosing = {
   paid_at: string | null;
   notes: string | null;
   created_at: string;
+  work_logs: Array<{
+    id: number;
+    work_date: string;
+    clock_in: string | null;
+    clock_out: string | null;
+    work_status: "open" | "completed";
+    net_hours: string;
+    overtime_hours: string;
+    total_amount: string;
+  }>;
 };
 
 export type WeeklyClosingCreate = {

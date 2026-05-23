@@ -122,6 +122,7 @@ export function WeeklyClosingsPage() {
         open={createOpen}
         employees={employees}
         workLogs={workLogs}
+        initialEmployeeId={null}
         onClose={() => setCreateOpen(false)}
         onCreated={(closing) => {
           upsert(closing);

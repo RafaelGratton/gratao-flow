@@ -1,6 +1,8 @@
 export type WorkType = "full_day" | "half_day" | "absence";
 export type WorkPaymentMode = "full_day" | "proportional_hours";
 export type EmployeePaymentStatus = "pending" | "paid";
+export type PixKeyType = "cpf" | "email" | "phone" | "random";
+export type WorkStatus = "open" | "completed";
 
 export type Employee = {
   id: number;
@@ -10,6 +12,8 @@ export type Employee = {
   daily_rate: string;
   standard_daily_hours: string;
   standard_lunch_hours: string;
+  pix_key_type: PixKeyType | null;
+  pix_key: string | null;
   hourly_rate: string;
   is_active: boolean;
   notes: string | null;
@@ -22,6 +26,7 @@ export type WorkLog = {
   work_date: string;
   clock_in: string | null;
   clock_out: string | null;
+  work_status: WorkStatus;
   break_hours: string;
   gross_hours: string;
   net_hours: string;

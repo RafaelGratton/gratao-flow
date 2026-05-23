@@ -6,11 +6,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
-from app.api.routes.employees import calculate_employee_work_log, ensure_work_log_can_change
+from app.api.routes.employees import (
+    calculate_employee_work_log,
+    ensure_work_log_can_change,
+    open_employee_work_log_values,
+)
 from app.db.session import get_db
 from app.models.employee import Employee, EmployeeWorkLog
 from app.models.enums import EmployeePaymentStatus
-from app.schemas.employee import WorkLogRead, WorkLogUpdate
+from app.schemas.employee import WorkLogClockOut, WorkLogRead, WorkLogUpdate
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -31,6 +35,11 @@ def pay_work_log(
 ) -> EmployeeWorkLog:
     work_log = _get_work_log_or_404(db, work_log_id)
     ensure_work_log_can_change(work_log, db)
+    if work_log.clock_out is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Registre a hora de saida antes de marcar como pago.",
+        )
 
     work_log.payment_status = EmployeePaymentStatus.PAID
     work_log.paid_at = datetime.now(timezone.utc)
@@ -71,16 +80,68 @@ def update_work_log(
 
     clock_in = payload.clock_in or work_log.clock_in
     clock_out = payload.clock_out or work_log.clock_out
-    if clock_in is None or clock_out is None:
+    if clock_in is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Hora de entrada e saida sao obrigatorias.",
+            detail="Hora de entrada e obrigatoria.",
+        )
+
+    break_hours = payload.break_hours if payload.break_hours is not None else work_log.break_hours
+    payment_mode = payload.payment_mode or work_log.payment_mode
+    if clock_out is None:
+        calculated = open_employee_work_log_values(
+            clock_in=clock_in,
+            break_hours=break_hours,
+            payment_mode=payment_mode,
+        )
+    else:
+        calculated = calculate_employee_work_log(
+            employee=employee,
+            clock_in=clock_in,
+            clock_out=clock_out,
+            break_hours=break_hours,
+            payment_mode=payment_mode,
+        )
+    for field, value in calculated.items():
+        setattr(work_log, field, value)
+    if payload.notes is not None:
+        work_log.notes = payload.notes
+
+    db.commit()
+    db.refresh(work_log)
+    return work_log
+
+
+@router.post("/{work_log_id}/clock-out", response_model=WorkLogRead)
+def clock_out_work_log(
+    work_log_id: int,
+    payload: WorkLogClockOut,
+    db: Annotated[Session, Depends(get_db)],
+) -> EmployeeWorkLog:
+    work_log = _get_work_log_or_404(db, work_log_id)
+    ensure_work_log_can_change(work_log, db)
+    if work_log.clock_out is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este registro ja possui hora de saida.",
+        )
+    if work_log.clock_in is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este registro nao possui hora de entrada.",
+        )
+
+    employee = db.get(Employee, work_log.employee_id)
+    if employee is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Employee not found",
         )
 
     calculated = calculate_employee_work_log(
         employee=employee,
-        clock_in=clock_in,
-        clock_out=clock_out,
+        clock_in=work_log.clock_in,
+        clock_out=payload.clock_out,
         break_hours=payload.break_hours if payload.break_hours is not None else work_log.break_hours,
         payment_mode=payload.payment_mode or work_log.payment_mode,
     )

@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock3, LockKeyhole, RefreshCw, Shirt } from "lucide-react";
+import { ChevronDown, ChevronRight, Clock3, LockKeyhole, RefreshCw, Shirt } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OrderDetails, OrderItem, OrderSummary } from "@/components/orders/types";
 import {
@@ -12,7 +12,7 @@ import {
 import { ProductionSewModal } from "@/components/production/ProductionSewModal";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Card, CardContent, CardHeader } from "@/components/ui/Card";
+import { Card, CardContent } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -23,7 +23,23 @@ type SewTarget = {
   item: OrderItem;
 };
 
-type SewingBucket = "ready" | "waiting_print" | "waiting_cut";
+type SewingBucket = "ready" | "active" | "waiting_print" | "waiting_cut";
+
+type SewingOrderGroup = {
+  order: OrderDetails;
+  rows: OperationalQueueItem[];
+  pendingItems: number;
+  readyItems: number;
+  activeItems: number;
+  waitingPrintItems: number;
+  waitingCutItems: number;
+  availableForSewing: number;
+  sewn: number;
+  missingSewing: number;
+  priority: OperationalQueueItem["item"]["operational_priority"];
+  latestTrace: OperationalQueueItem["traces"][number] | null;
+  ageDays: number;
+};
 
 const priorityRank = {
   critical: 0,
@@ -37,6 +53,7 @@ export function SewingPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [selected, setSelected] = useState<SewTarget | null>(null);
+  const [expandedOrders, setExpandedOrders] = useState<Set<number>>(() => new Set());
 
   const loadOrders = useCallback(async () => {
     setLoading(true);
@@ -76,23 +93,94 @@ export function SewingPage() {
     [orders]
   );
 
-  const grouped = useMemo(() => {
-    const buckets: Record<SewingBucket, OperationalQueueItem[]> = {
-      ready: [],
-      waiting_print: [],
-      waiting_cut: []
-    };
-
+  const summary = useMemo(() => {
+    const values = { orders: 0, ready: 0, waiting_print: 0, waiting_cut: 0 };
     for (const row of rows) {
-      buckets[sewingBucket(row)].push(row);
+      const bucket = sewingBucket(row);
+      if (bucket === "ready" || bucket === "active") {
+        values.ready += 1;
+      } else {
+        values[bucket] += 1;
+      }
     }
+    values.orders = new Set(rows.map((row) => row.order.id)).size;
+    return values;
+  }, [rows]);
 
-    return buckets;
+  const orderGroups = useMemo<SewingOrderGroup[]>(() => {
+    const grouped = new Map<number, OperationalQueueItem[]>();
+
+    rows.forEach((row) => {
+      const groupRows = grouped.get(row.order.id) ?? [];
+      groupRows.push(row);
+      grouped.set(row.order.id, groupRows);
+    });
+
+    return Array.from(grouped.values())
+      .map((groupRows) => {
+        const sortedRows = [...groupRows].sort((a, b) => {
+          const bucketDiff = sewingBucketRank(sewingBucket(a)) - sewingBucketRank(sewingBucket(b));
+          if (bucketDiff !== 0) return bucketDiff;
+
+          const priorityDiff = priorityRank[a.item.operational_priority] - priorityRank[b.item.operational_priority];
+          if (priorityDiff !== 0) return priorityDiff;
+
+          return b.ageDays - a.ageDays || a.itemNumber - b.itemNumber;
+        });
+        const buckets = sortedRows.map(sewingBucket);
+        const priority = sortedRows.reduce(
+          (highest, row) =>
+            priorityRank[row.item.operational_priority] < priorityRank[highest]
+              ? row.item.operational_priority
+              : highest,
+          sortedRows[0].item.operational_priority
+        );
+        const traces = sortedRows
+          .flatMap((row) => row.traces)
+          .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+
+        return {
+          order: sortedRows[0].order,
+          rows: sortedRows,
+          pendingItems: sortedRows.length,
+          readyItems: buckets.filter((bucket) => bucket === "ready").length,
+          activeItems: buckets.filter((bucket) => bucket === "active").length,
+          waitingPrintItems: buckets.filter((bucket) => bucket === "waiting_print").length,
+          waitingCutItems: buckets.filter((bucket) => bucket === "waiting_cut").length,
+          availableForSewing: sortedRows.reduce((total, row) => total + row.balances.availableForSewing, 0),
+          sewn: sortedRows.reduce((total, row) => total + row.balances.sewn, 0),
+          missingSewing: sortedRows.reduce((total, row) => total + row.balances.missingSewing, 0),
+          priority,
+          latestTrace: traces[0] ?? null,
+          ageDays: Math.max(...sortedRows.map((row) => row.ageDays))
+        };
+      })
+      .sort((a, b) => {
+        const stageDiff = groupStageRank(a) - groupStageRank(b);
+        if (stageDiff !== 0) return stageDiff;
+
+        const priorityDiff = priorityRank[a.priority] - priorityRank[b.priority];
+        if (priorityDiff !== 0) return priorityDiff;
+
+        return b.ageDays - a.ageDays || a.order.id - b.order.id;
+      });
   }, [rows]);
 
   function handleUpdated(updated: OrderDetails) {
     setOrders((current) => current.map((order) => (order.id === updated.id ? updated : order)));
     setSuccess(`Confeccao registrada na OS #${updated.id}.`);
+  }
+
+  function toggleOrder(orderId: number) {
+    setExpandedOrders((current) => {
+      const next = new Set(current);
+      if (next.has(orderId)) {
+        next.delete(orderId);
+      } else {
+        next.add(orderId);
+      }
+      return next;
+    });
   }
 
   return (
@@ -121,53 +209,49 @@ export function SewingPage() {
         </div>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <SummaryTile label="Aptos para costurar" value={grouped.ready.length} />
-        <SummaryTile label="Aguardando DTF" value={grouped.waiting_print.length} tone="warning" />
-        <SummaryTile label="Aguardando corte" value={grouped.waiting_cut.length} tone="warning" />
+      <div className="grid gap-4 md:grid-cols-4">
+        <SummaryTile label="OS na fila" value={summary.orders} />
+        <SummaryTile label="Aptos para costurar" value={summary.ready} />
+        <SummaryTile label="Aguardando DTF" value={summary.waiting_print} tone="warning" />
+        <SummaryTile label="Aguardando corte" value={summary.waiting_cut} tone="warning" />
       </div>
 
-      {loading ? (
-        <Card>
-          <CardContent className="space-y-3">
-            {Array.from({ length: 5 }).map((_, index) => (
-              <div key={index} className="h-24 animate-pulse rounded-md border border-line bg-[#FCFAF6]" />
-            ))}
-          </CardContent>
-        </Card>
-      ) : rows.length === 0 ? (
-        <Card>
-          <CardContent>
-            <EmptyState
-              icon={<Shirt size={20} />}
-              title="Nenhum item aguardando confeccao"
-              description="Itens internos aparecem aqui quando ainda existe saldo a costurar."
-            />
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-5">
-          <SewingSection
-            title="Aptos para costurar"
-            description="Saldo liberado pela etapa anterior e ainda nao costurado."
-            rows={grouped.ready}
-            actionLabel="Registrar confeccao"
-            onRegister={(row) => setSelected({ order: row.order, item: row.item })}
-          />
-          <SewingSection
-            title="Bloqueados aguardando DTF"
-            description="Itens internos que ainda precisam de DTF antes da confeccao."
-            rows={grouped.waiting_print}
-            actionLabel="Aguardando DTF"
-          />
-          <SewingSection
-            title="Bloqueados aguardando corte"
-            description="Itens internos que ainda precisam liberar saldo de corte."
-            rows={grouped.waiting_cut}
-            actionLabel="Aguardando corte"
-          />
+      <section className="space-y-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent-dark">Fila de producao</p>
+          <h2 className="mt-1 text-xl font-black text-ink">OS com confeccao pendente</h2>
         </div>
-      )}
+
+        {loading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div key={index} className="h-32 animate-pulse rounded-lg border border-line bg-white/80" />
+            ))}
+          </div>
+        ) : orderGroups.length === 0 ? (
+          <Card>
+            <CardContent>
+              <EmptyState
+                icon={<Shirt size={20} />}
+                title="Nenhum item aguardando confeccao"
+                description="Itens internos aparecem aqui quando ainda existe saldo a costurar."
+              />
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {orderGroups.map((group) => (
+              <SewingOrderCard
+                key={group.order.id}
+                group={group}
+                expanded={expandedOrders.has(group.order.id)}
+                onToggle={() => toggleOrder(group.order.id)}
+                onRegister={(row) => setSelected({ order: row.order, item: row.item })}
+              />
+            ))}
+          </div>
+        )}
+      </section>
 
       <ProductionSewModal
         open={Boolean(selected)}
@@ -180,68 +264,93 @@ export function SewingPage() {
   );
 }
 
-function SewingSection({
-  title,
-  description,
-  rows,
-  actionLabel,
+function SewingOrderCard({
+  group,
+  expanded,
+  onToggle,
   onRegister
 }: {
-  title: string;
-  description: string;
-  rows: OperationalQueueItem[];
-  actionLabel: string;
-  onRegister?: (row: OperationalQueueItem) => void;
+  group: SewingOrderGroup;
+  expanded: boolean;
+  onToggle: () => void;
+  onRegister: (row: OperationalQueueItem) => void;
 }) {
-  if (rows.length === 0) return null;
+  const latest = group.latestTrace;
+  const pendingLabel = group.pendingItems === 1 ? "item com confeccao pendente" : "itens com confeccao pendente";
 
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="bg-white/70">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent-dark">{title}</p>
-          <p className="mt-1 text-sm font-semibold text-muted">{description}</p>
+      <div className="grid gap-4 p-5 xl:grid-cols-[1.15fr_1.25fr_1fr_auto] xl:items-center">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-lg font-black text-ink">OS #{group.order.id}</span>
+            <Badge tone="accent">
+              {group.pendingItems} {pendingLabel}
+            </Badge>
+            <PriorityBadge priority={group.priority} />
+          </div>
+          <p className="mt-1 text-sm font-semibold text-muted">{group.order.client.name}</p>
         </div>
-      </CardHeader>
-      <CardContent className="p-0">
-        <div className="divide-y divide-line/70">
-          {rows.map((row) => (
-            <SewingRow
-              key={`${row.order.id}-${row.item.id}`}
-              row={row}
-              actionLabel={actionLabel}
-              onRegister={onRegister ? () => onRegister(row) : undefined}
-            />
-          ))}
+
+        <div className="grid grid-cols-2 gap-2 rounded-md border border-line bg-[#FCFAF6] p-3 md:grid-cols-4">
+          <Metric label="Liberados" value={group.readyItems + group.activeItems} tone="success" />
+          <Metric label="Andamento" value={group.activeItems} tone="accent" />
+          <Metric label="Aguard. DTF" value={group.waitingPrintItems} tone="warning" />
+          <Metric label="Aguard. corte" value={group.waitingCutItems} tone="warning" />
         </div>
-      </CardContent>
+
+        <div className="grid grid-cols-3 gap-3 rounded-md border border-line bg-white p-3">
+          <Metric label="Disponivel" value={group.availableForSewing} tone="success" />
+          <Metric label="Costurado" value={group.sewn} />
+          <Metric label="Falta" value={group.missingSewing} tone="warning" />
+        </div>
+
+        <div className="space-y-3">
+          <LatestTrace trace={latest} />
+          <Button type="button" variant="secondary" onClick={onToggle} aria-expanded={expanded} className="w-full">
+            {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            Ver itens
+          </Button>
+        </div>
+      </div>
+
+      {expanded ? (
+        <div className="border-t border-line/70 bg-[#FCFAF6]/70 p-4">
+          <div className="space-y-3">
+            {group.rows.map((row) => (
+              <SewingItemRow
+                key={`${row.order.id}-${row.item.id}`}
+                row={row}
+                onRegister={() => onRegister(row)}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
     </Card>
   );
 }
 
-function SewingRow({
+function SewingItemRow({
   row,
-  actionLabel,
   onRegister
 }: {
   row: OperationalQueueItem;
-  actionLabel: string;
-  onRegister?: () => void;
+  onRegister: () => void;
 }) {
-  const latest = row.traces[0];
   const hasPrint = itemNeedsStage(row.item, "print");
+  const bucket = sewingBucket(row);
+  const canRegister = row.balances.availableForSewing > 0;
 
   return (
-    <div className="grid gap-4 p-5 transition hover:bg-accent-soft/25 xl:grid-cols-[1.2fr_1.3fr_1fr_auto] xl:items-center">
+    <div className="grid gap-4 rounded-md border border-line bg-white p-4 xl:grid-cols-[1.2fr_1.3fr_auto] xl:items-center">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-lg font-black text-ink">OS #{row.order.id}</span>
           <Badge tone="accent">Item {row.itemNumber}</Badge>
           <PriorityBadge priority={row.item.operational_priority} />
-          <Badge tone={onRegister ? "success" : "warning"}>{onRegister ? "Liberado" : row.statusLabel}</Badge>
+          <SewingStatusBadge bucket={bucket} />
         </div>
-        <p className="mt-1 text-sm font-semibold text-muted">{row.order.client.name}</p>
-        <p className="mt-3 text-sm text-muted">
+        <p className="mt-2 text-sm text-muted">
           <span className="font-bold text-ink">{row.item.product.name}</span> / {row.item.color || "sem cor"} / Tam. {row.item.size.label}
         </p>
         {row.item.notes ? <p className="mt-2 text-xs text-muted">{row.item.notes}</p> : null}
@@ -255,25 +364,29 @@ function SewingRow({
         <Metric label="Falta" value={row.balances.missingSewing} tone="warning" />
       </div>
 
-      <div className="space-y-2">
-        <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Ultima movimentacao</p>
-        {latest ? (
-          <div className="text-sm">
-            <p className="font-semibold text-ink">{latest.label}</p>
-            <p className="mt-1 text-xs text-muted">{latest.actor} / {formatDateTime(latest.at)}</p>
-          </div>
-        ) : (
-          <p className="flex items-center gap-2 text-sm font-semibold text-muted">
-            <Clock3 size={15} />
-            Sem movimentacao
-          </p>
-        )}
-      </div>
-
-      <Button type="button" onClick={onRegister} disabled={!onRegister} variant={onRegister ? "primary" : "secondary"}>
-        {onRegister ? <Shirt size={16} /> : <LockKeyhole size={16} />}
-        {actionLabel}
+      <Button type="button" onClick={onRegister} disabled={!canRegister} variant={canRegister ? "primary" : "secondary"}>
+        {canRegister ? <Shirt size={16} /> : <LockKeyhole size={16} />}
+        {canRegister ? "Registrar confeccao" : blockedActionLabel(bucket)}
       </Button>
+    </div>
+  );
+}
+
+function LatestTrace({ trace }: { trace: OperationalQueueItem["traces"][number] | null }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Ultima movimentacao</p>
+      {trace ? (
+        <div className="text-sm">
+          <p className="font-semibold text-ink">{trace.label}</p>
+          <p className="mt-1 text-xs text-muted">{trace.actor} / {formatDateTime(trace.at)}</p>
+        </div>
+      ) : (
+        <p className="flex items-center gap-2 text-sm font-semibold text-muted">
+          <Clock3 size={15} />
+          Sem movimentacao
+        </p>
+      )}
     </div>
   );
 }
@@ -305,7 +418,7 @@ function Metric({
 }: {
   label: string;
   value: number;
-  tone?: "neutral" | "success" | "warning";
+  tone?: "neutral" | "success" | "warning" | "accent";
   muted?: boolean;
 }) {
   return (
@@ -315,7 +428,8 @@ function Metric({
         className={cn(
           "mt-1 font-black text-ink",
           tone === "success" && value > 0 && "text-success",
-          tone === "warning" && value > 0 && "text-warning"
+          tone === "warning" && value > 0 && "text-warning",
+          tone === "accent" && value > 0 && "text-accent-dark"
         )}
       >
         {muted ? "-" : value}
@@ -329,8 +443,35 @@ function PriorityBadge({ priority }: { priority: OperationalQueueItem["item"]["o
   return <Badge tone={tone}>{priorityLabel(priority)}</Badge>;
 }
 
+function SewingStatusBadge({ bucket }: { bucket: SewingBucket }) {
+  if (bucket === "ready") return <Badge tone="success">Liberado</Badge>;
+  if (bucket === "active") return <Badge tone="accent">Em andamento</Badge>;
+  if (bucket === "waiting_print") return <Badge tone="warning">Bloqueado aguardando DTF</Badge>;
+  return <Badge tone="warning">Bloqueado aguardando corte</Badge>;
+}
+
 function sewingBucket(row: OperationalQueueItem): SewingBucket {
-  if (row.balances.availableForSewing > 0) return "ready";
+  if (row.balances.availableForSewing > 0) return row.balances.sewn > 0 ? "active" : "ready";
   if (itemNeedsStage(row.item, "print") && row.balances.missingPrint > 0) return "waiting_print";
   return "waiting_cut";
+}
+
+function blockedActionLabel(bucket: SewingBucket) {
+  if (bucket === "waiting_print") return "Aguardando DTF";
+  if (bucket === "waiting_cut") return "Aguardando corte";
+  return "Registrar confeccao";
+}
+
+function sewingBucketRank(bucket: SewingBucket) {
+  if (bucket === "ready") return 0;
+  if (bucket === "active") return 1;
+  if (bucket === "waiting_print") return 2;
+  return 3;
+}
+
+function groupStageRank(group: SewingOrderGroup) {
+  if (group.readyItems > 0) return 0;
+  if (group.activeItems > 0) return 1;
+  if (group.waitingPrintItems > 0) return 2;
+  return 3;
 }

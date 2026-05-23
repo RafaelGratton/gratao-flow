@@ -4,9 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { EmployeeModal } from "@/components/employees/EmployeeModal";
 import { EmployeeSummaryCards } from "@/components/employees/EmployeeSummaryCards";
 import { EmployeeTable } from "@/components/employees/EmployeeTable";
+import { WorkLogExitModal } from "@/components/employees/WorkLogExitModal";
 import { WorkLogModal } from "@/components/employees/WorkLogModal";
 import { WorkLogsTable } from "@/components/employees/WorkLogsTable";
 import type { Employee, WorkLog } from "@/components/employees/types";
+import { WeeklyClosingCreateModal } from "@/components/weekly-closings/WeeklyClosingCreateModal";
+import type { WeeklyClosing } from "@/components/weekly-closings/types";
 import { api } from "@/lib/api";
 
 export function EmployeesPage() {
@@ -18,8 +21,9 @@ export function EmployeesPage() {
   const [employeeModalOpen, setEmployeeModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [workLogEmployee, setWorkLogEmployee] = useState<Employee | null>(null);
+  const [exitingWorkLog, setExitingWorkLog] = useState<WorkLog | null>(null);
+  const [closingEmployee, setClosingEmployee] = useState<Employee | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
-  const [payingId, setPayingId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -57,23 +61,22 @@ export function EmployeesPage() {
 
   function handleWorkLogCreated(workLog: WorkLog) {
     setWorkLogs((current) => [workLog, ...current.filter((item) => item.id !== workLog.id)]);
-    setFeedback("Registro de trabalho criado com sucesso.");
+    setFeedback("Entrada registrada com sucesso.");
   }
 
-  async function handlePay(workLog: WorkLog) {
-    if (workLog.payment_status === "paid" || workLog.weekly_closing_id !== null) return;
-    setPayingId(workLog.id);
-    setError(null);
-    try {
-      const paid = await api.post<WorkLog>(`/work-logs/${workLog.id}/pay`, {});
-      setWorkLogs((current) => current.map((item) => (item.id === paid.id ? paid : item)));
-      setFeedback("Pagamento marcado como pago.");
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Nao foi possivel marcar como pago.");
-    } finally {
-      setPayingId(null);
-    }
+  function handleWorkLogSaved(workLog: WorkLog) {
+    setWorkLogs((current) => current.map((item) => (item.id === workLog.id ? workLog : item)));
+    setFeedback("Saida registrada e diaria calculada.");
   }
+
+  function handleWeeklyClosingCreated(_closing: WeeklyClosing) {
+    setFeedback("Fechamento semanal criado com sucesso.");
+    void load();
+  }
+
+  const exitingEmployee = exitingWorkLog
+    ? employees.find((employee) => employee.id === exitingWorkLog.employee_id) ?? null
+    : null;
 
   return (
     <div className="space-y-5">
@@ -107,15 +110,15 @@ export function EmployeesPage() {
           setEmployeeModalOpen(true);
         }}
         onRegisterDay={setWorkLogEmployee}
+        onCloseWeek={setClosingEmployee}
         onViewLogs={setSelectedEmployee}
       />
       <WorkLogsTable
         employees={employees}
         workLogs={visibleWorkLogs}
         loading={loading}
-        payingId={payingId}
         selectedEmployee={selectedEmployee}
-        onPay={(workLog) => void handlePay(workLog)}
+        onRegisterExit={setExitingWorkLog}
         onClearFilter={() => setSelectedEmployee(null)}
       />
 
@@ -132,6 +135,20 @@ export function EmployeesPage() {
         employee={workLogEmployee}
         onClose={() => setWorkLogEmployee(null)}
         onCreated={handleWorkLogCreated}
+      />
+      <WorkLogExitModal
+        workLog={exitingWorkLog}
+        employee={exitingEmployee}
+        onClose={() => setExitingWorkLog(null)}
+        onSaved={handleWorkLogSaved}
+      />
+      <WeeklyClosingCreateModal
+        open={closingEmployee !== null}
+        employees={employees}
+        workLogs={workLogs}
+        initialEmployeeId={closingEmployee?.id ?? null}
+        onClose={() => setClosingEmployee(null)}
+        onCreated={handleWeeklyClosingCreated}
       />
     </div>
   );

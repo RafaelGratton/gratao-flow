@@ -18,7 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models.enums import EmployeePaymentStatus, WorkPaymentMode, WorkType
+from app.models.enums import EmployeePaymentStatus, PixKeyType, WorkPaymentMode, WorkType
 
 
 class Employee(Base):
@@ -31,6 +31,15 @@ class Employee(Base):
     daily_rate: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     standard_daily_hours: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
     standard_lunch_hours: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    pix_key_type: Mapped[PixKeyType | None] = mapped_column(
+        Enum(
+            PixKeyType,
+            name="employee_pix_key_type",
+            values_callable=lambda enum_class: [item.value for item in enum_class],
+        ),
+        nullable=True,
+    )
+    pix_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -113,3 +122,7 @@ class EmployeeWorkLog(Base):
 
     employee = relationship("Employee", back_populates="work_logs")
     weekly_closing = relationship("WeeklyClosing", back_populates="work_logs")
+
+    @property
+    def work_status(self) -> str:
+        return "open" if self.clock_out is None else "completed"

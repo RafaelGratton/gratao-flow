@@ -2,6 +2,8 @@
 
 import {
   AlertTriangle,
+  ChevronDown,
+  ChevronRight,
   CheckCircle2,
   Clock3,
   History,
@@ -33,6 +35,21 @@ type Filters = {
   onlyBlocked: boolean;
 };
 
+type DeliveryOrderGroup = {
+  orderId: number;
+  client: DeliveryItem["client"];
+  items: DeliveryItem[];
+  requested: number;
+  ready: number;
+  available: number;
+  delivered: number;
+  remaining: number;
+  operationalStatus: DeliveryOperationalStatus;
+  blocked: boolean;
+  blockedItems: number;
+  waitingDays: number;
+};
+
 const WITHDRAWAL_PROOF_MESSAGE =
   "Informe quem retirou e um documento ou contato para registrar a entrega.";
 
@@ -61,6 +78,15 @@ const operationalTone: Record<DeliveryOperationalStatus, "neutral" | "accent" | 
   delivered_total: "success"
 };
 
+const operationalRank: Record<DeliveryOperationalStatus, number> = {
+  delivered_partial_waiting_pickup: 0,
+  ready_partial_waiting_pickup: 1,
+  ready_total_waiting_pickup: 2,
+  delivered_partial_waiting_production: 3,
+  waiting_production: 4,
+  delivered_total: 5
+};
+
 export function DeliveriesPage() {
   const [data, setData] = useState<DeliveryList | null>(null);
   const [loading, setLoading] = useState(true);
@@ -69,6 +95,7 @@ export function DeliveriesPage() {
   const [selected, setSelected] = useState<DeliveryItem | null>(null);
   const [proof, setProof] = useState<{ item: DeliveryItem; entry: DeliveryItem["history"][number] } | null>(null);
   const [activeTab, setActiveTab] = useState<DeliveryQueueStatus>("ready_for_pickup");
+  const [expandedOrders, setExpandedOrders] = useState<Set<number>>(() => new Set());
   const [filters, setFilters] = useState<Filters>({
     client: "",
     product: "",
@@ -129,6 +156,61 @@ export function DeliveriesPage() {
     [activeTab, clientWaitingCount, filters, items]
   );
 
+  const deliveryGroups = useMemo<DeliveryOrderGroup[]>(() => {
+    const grouped = new Map<number, DeliveryItem[]>();
+
+    filteredItems.forEach((item) => {
+      const groupItems = grouped.get(item.order_id) ?? [];
+      groupItems.push(item);
+      grouped.set(item.order_id, groupItems);
+    });
+
+    return Array.from(grouped.values())
+      .map((groupItems) => {
+        const sortedItems = [...groupItems].sort((a, b) => {
+          if (b.quantity_available_to_deliver !== a.quantity_available_to_deliver) {
+            return b.quantity_available_to_deliver - a.quantity_available_to_deliver;
+          }
+          return a.order_item_id - b.order_item_id;
+        });
+        const blockedItems = sortedItems.filter((item) =>
+          isBlocked(item, clientWaitingCount.get(item.client.id) ?? 0)
+        ).length;
+        const operationalStatus = sortedItems.reduce(
+          (current, item) =>
+            operationalRank[item.operational_status] < operationalRank[current]
+              ? item.operational_status
+              : current,
+          sortedItems[0].operational_status
+        );
+
+        return {
+          orderId: sortedItems[0].order_id,
+          client: sortedItems[0].client,
+          items: sortedItems,
+          requested: sortedItems.reduce((total, item) => total + item.quantity_requested, 0),
+          ready: sortedItems.reduce((total, item) => total + item.quantity_ready_total, 0),
+          available: sortedItems.reduce((total, item) => total + item.quantity_available_to_deliver, 0),
+          delivered: sortedItems.reduce((total, item) => total + item.quantity_delivered, 0),
+          remaining: sortedItems.reduce((total, item) => total + item.quantity_remaining, 0),
+          operationalStatus,
+          blocked: blockedItems > 0,
+          blockedItems,
+          waitingDays: Math.max(
+            ...sortedItems.map((item) =>
+              Math.max(item.ready_waiting_days ?? 0, item.partially_delivered_days ?? 0)
+            )
+          )
+        };
+      })
+      .sort((a, b) => {
+        if (a.blocked !== b.blocked) return a.blocked ? -1 : 1;
+        if (b.available !== a.available) return b.available - a.available;
+        if (b.waitingDays !== a.waitingDays) return b.waitingDays - a.waitingDays;
+        return a.orderId - b.orderId;
+      });
+  }, [clientWaitingCount, filteredItems]);
+
   function replaceItem(updated: DeliveryItem) {
     setData((current) => {
       if (!current) return current;
@@ -142,6 +224,18 @@ export function DeliveriesPage() {
     setSelected(null);
     setSuccess(`Entrega registrada na OS #${updated.order_id}.`);
     void loadDeliveries();
+  }
+
+  function toggleOrder(orderId: number) {
+    setExpandedOrders((current) => {
+      const next = new Set(current);
+      if (next.has(orderId)) {
+        next.delete(orderId);
+      } else {
+        next.add(orderId);
+      }
+      return next;
+    });
   }
 
   return (
@@ -269,14 +363,16 @@ export function DeliveriesPage() {
               Nenhum item encontrado para esta fila e filtros.
             </div>
           ) : (
-            <div className="divide-y divide-line/70">
-              {filteredItems.map((item) => (
-                <DeliveryRow
-                  key={item.order_item_id}
-                  item={item}
-                  clientWaitingItems={clientWaitingCount.get(item.client.id) ?? 0}
-                  onRegister={() => setSelected(item)}
-                  onProof={(entry) => setProof({ item, entry })}
+            <div className="space-y-3 p-5">
+              {deliveryGroups.map((group) => (
+                <DeliveryOrderCard
+                  key={group.orderId}
+                  group={group}
+                  expanded={expandedOrders.has(group.orderId)}
+                  onToggle={() => toggleOrder(group.orderId)}
+                  clientWaitingCount={clientWaitingCount}
+                  onRegister={(item) => setSelected(item)}
+                  onProof={(item, entry) => setProof({ item, entry })}
                 />
               ))}
             </div>
@@ -291,6 +387,93 @@ export function DeliveriesPage() {
         onError={setError}
       />
       <DeliveryProofModal proof={proof} onClose={() => setProof(null)} />
+    </div>
+  );
+}
+
+function DeliveryOrderCard({
+  group,
+  expanded,
+  onToggle,
+  clientWaitingCount,
+  onRegister,
+  onProof
+}: {
+  group: DeliveryOrderGroup;
+  expanded: boolean;
+  onToggle: () => void;
+  clientWaitingCount: Map<number, number>;
+  onRegister: (item: DeliveryItem) => void;
+  onProof: (item: DeliveryItem, entry: DeliveryItem["history"][number]) => void;
+}) {
+  const itemLabel = group.items.length === 1 ? "item nesta aba" : "itens nesta aba";
+
+  return (
+    <div
+      className={`overflow-hidden rounded-lg border border-line bg-white shadow-insetline ${
+        group.blocked ? "border-warning/25 bg-warning/5" : ""
+      }`}
+    >
+      <div className="grid gap-4 p-5 xl:grid-cols-[1.15fr_1.35fr_1fr_auto] xl:items-center">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-lg font-black text-ink">OS #{group.orderId}</span>
+            <Badge tone="accent">
+              {group.items.length} {itemLabel}
+            </Badge>
+            <Badge tone={operationalTone[group.operationalStatus]}>
+              {operationalLabels[group.operationalStatus]}
+            </Badge>
+            {group.blocked ? (
+              <Badge tone="warning">
+                <AlertTriangle size={13} />
+                {group.blockedItems} {group.blockedItems === 1 ? "alerta" : "alertas"}
+              </Badge>
+            ) : null}
+          </div>
+          <p className="mt-1 text-sm font-semibold text-muted">{group.client.name}</p>
+          {group.waitingDays > 0 ? (
+            <p className="mt-2 text-xs font-bold text-warning">Esperando retirada ha {formatAge(group.waitingDays)}</p>
+          ) : null}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 rounded-md border border-line bg-[#FCFAF6] p-3 md:grid-cols-5">
+          <Metric label="Solicitado" value={group.requested} />
+          <Metric label="Pronto" value={group.ready} />
+          <Metric label="Disponivel" value={group.available} />
+          <Metric label="Entregue" value={group.delivered} />
+          <Metric label="Falta entregar" value={group.remaining} />
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Resumo</p>
+          <p className="text-sm font-semibold text-ink">
+            {group.available} disponivel{group.available === 1 ? "" : "s"} para entrega
+          </p>
+          <p className="text-xs font-semibold text-muted">{group.delivered} ja entregue{group.delivered === 1 ? "" : "s"}</p>
+        </div>
+
+        <Button type="button" variant="secondary" onClick={onToggle} aria-expanded={expanded}>
+          {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          Ver itens
+        </Button>
+      </div>
+
+      {expanded ? (
+        <div className="border-t border-line/70 bg-[#FCFAF6]/70">
+          <div className="divide-y divide-line/70">
+            {group.items.map((item) => (
+              <DeliveryRow
+                key={item.order_item_id}
+                item={item}
+                clientWaitingItems={clientWaitingCount.get(item.client.id) ?? 0}
+                onRegister={() => onRegister(item)}
+                onProof={(entry) => onProof(item, entry)}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

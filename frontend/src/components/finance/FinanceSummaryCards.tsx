@@ -1,4 +1,4 @@
-import { Banknote, CircleDollarSign, HandCoins, TrendingUp, WalletCards } from "lucide-react";
+import { Banknote, CircleDollarSign, HandCoins, TrendingDown, TrendingUp, UsersRound, WalletCards } from "lucide-react";
 import { StatCard } from "@/components/dashboard/StatCard";
 import type { FinanceSummary } from "@/components/finance/types";
 import { formatCurrency } from "@/lib/format";
@@ -9,35 +9,59 @@ type Props = {
 
 export function FinanceSummaryCards({ summary }: Props) {
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       <StatCard
-        label="Faturado"
+        label="Faturado no periodo"
         value={formatCurrency(summary.totalInvoiced)}
-        detail="Valor total das OS carregadas."
+        detail="OS criadas no intervalo selecionado."
         icon={<CircleDollarSign size={20} />}
       />
       <StatCard
-        label="Recebido"
+        label="Recebido no periodo"
         value={formatCurrency(summary.totalReceived)}
-        detail="Pagamentos registrados nas OS."
+        detail="Pagamentos de clientes realizados no intervalo."
         icon={<WalletCards size={20} />}
       />
       <StatCard
         label="A receber"
         value={formatCurrency(summary.totalPending)}
-        detail="Saldo pendente de clientes."
+        detail="Saldo atual das OS faturadas no periodo."
         icon={<Banknote size={20} />}
       />
       <StatCard
-        label="Repasses pendentes"
-        value={formatCurrency(summary.payoutPending)}
-        detail="Terceirização ainda não paga."
+        label="Funcionarios pagos"
+        value={formatCurrency(summary.employeePaid)}
+        detail="Fechamentos pagos no intervalo."
+        icon={<UsersRound size={20} />}
+      />
+      <StatCard
+        label="Funcionarios a pagar"
+        value={formatCurrency(summary.employeePending)}
+        detail="Fechamentos pendentes no periodo."
+        icon={<UsersRound size={20} />}
+      />
+      <StatCard
+        label="Terceirizacao paga"
+        value={formatCurrency(summary.payoutPaid)}
+        detail="Repasses pagos no intervalo."
         icon={<HandCoins size={20} />}
       />
       <StatCard
-        label="Lucro terceirização"
-        value={formatCurrency(summary.outsourcingProfit)}
-        detail="Diferenca entre cliente e repasse."
+        label="Terceirizacao a pagar"
+        value={formatCurrency(summary.payoutPending)}
+        detail="Repasses pendentes enviados no periodo."
+        icon={<HandCoins size={20} />}
+      />
+      <StatCard
+        label="Resultado de caixa"
+        value={formatCurrency(summary.cashResult)}
+        detail="Recebido menos funcionarios e terceirizacao pagos."
+        icon={<TrendingDown size={20} />}
+      />
+      <StatCard
+        label="Resultado projetado"
+        value={formatCurrency(summary.projectedResult)}
+        detail="Faturado menos valores pendentes de pagamento."
         icon={<TrendingUp size={20} />}
       />
     </div>

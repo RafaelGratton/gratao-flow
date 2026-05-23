@@ -95,6 +95,13 @@ class WorkPaymentMode(StrEnum):
     PROPORTIONAL_HOURS = "proportional_hours"
 
 
+class PixKeyType(StrEnum):
+    CPF = "cpf"
+    EMAIL = "email"
+    PHONE = "phone"
+    RANDOM = "random"
+
+
 class EmployeePaymentStatus(StrEnum):
     PENDING = "pending"
     PAID = "paid"

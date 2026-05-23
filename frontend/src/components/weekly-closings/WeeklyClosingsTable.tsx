@@ -69,7 +69,7 @@ export function WeeklyClosingsTable({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-[1180px] w-full border-separate border-spacing-0 text-left text-sm">
+            <table className="min-w-[1260px] w-full border-separate border-spacing-0 text-left text-sm">
               <thead>
                 <tr className="bg-[#FCFAF6] text-xs font-black uppercase tracking-[0.12em] text-muted">
                   {[
@@ -81,6 +81,7 @@ export function WeeklyClosingsTable({
                     "Base",
                     "Extra R$",
                     "Total",
+                    "Pix",
                     "Status",
                     "Acoes"
                   ].map((heading) => (
@@ -110,6 +111,9 @@ export function WeeklyClosingsTable({
                     </td>
                     <td className="border-b border-line/70 px-4 py-4 font-black text-ink">
                       {formatCurrency(closing.total_payable)}
+                    </td>
+                    <td className="border-b border-line/70 px-4 py-4 text-muted">
+                      {closing.employee_pix_key ? "Cadastrado" : "Pendente"}
                     </td>
                     <td className="border-b border-line/70 px-4 py-4">
                       <StatusBadge

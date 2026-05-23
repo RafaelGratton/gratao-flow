@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { api } from "@/lib/api";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatDateTime } from "@/lib/format";
 import { useState } from "react";
 
 type Props = {
@@ -43,7 +43,7 @@ export function PayoutsTable({ rows, loading, onPaid, onError }: Props) {
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent-dark">
             Repasses de terceirização
           </p>
-          <h2 className="mt-1 text-xl font-black text-ink">Terceirizados e lucro</h2>
+          <h2 className="mt-1 text-xl font-black text-ink">Terceirizados no periodo</h2>
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -63,7 +63,7 @@ export function PayoutsTable({ rows, loading, onPaid, onError }: Props) {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-[1180px] w-full border-separate border-spacing-0 text-left text-sm">
+            <table className="min-w-[1320px] w-full border-separate border-spacing-0 text-left text-sm">
               <thead>
                 <tr className="bg-[#FCFAF6] text-xs font-black uppercase tracking-[0.12em] text-muted">
                   {[
@@ -75,6 +75,7 @@ export function PayoutsTable({ rows, loading, onPaid, onError }: Props) {
                     "Repasse total",
                     "Lucro",
                     "Status repasse",
+                    "Pago em",
                     "Acoes"
                   ].map((heading) => (
                     <th key={heading} className="border-b border-line px-4 py-3">
@@ -105,6 +106,9 @@ export function PayoutsTable({ rows, loading, onPaid, onError }: Props) {
                       </td>
                       <td className="border-b border-line/70 px-4 py-4">
                         <StatusBadge label={pending ? "Pendente" : "Pago"} status={pending ? "warning" : "done"} />
+                      </td>
+                      <td className="border-b border-line/70 px-4 py-4 text-muted">
+                        {row.outsourcing.paid_at ? formatDateTime(row.outsourcing.paid_at) : "-"}
                       </td>
                       <td className="border-b border-line/70 px-4 py-4">
                         <Button

@@ -56,7 +56,16 @@ def update_employee(
     db: Annotated[Session, Depends(get_db)],
 ) -> Employee:
     employee = _get_employee_or_404(db, employee_id)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+    pix_key_type = updates.get("pix_key_type", employee.pix_key_type)
+    pix_key = updates.get("pix_key", employee.pix_key)
+    if pix_key_type is None and pix_key is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Informe o tipo da chave Pix antes de salvar a chave.",
+        )
+
+    for field, value in updates.items():
         setattr(employee, field, value)
 
     db.commit()
@@ -73,13 +82,20 @@ def create_employee_work_log(
     employee = _get_employee_or_404(db, employee_id)
     _ensure_work_log_does_not_exist(db, employee.id, payload.work_date)
 
-    calculated = _calculate_work_log(
-        employee=employee,
-        clock_in=payload.clock_in,
-        clock_out=payload.clock_out,
-        break_hours=payload.break_hours,
-        payment_mode=payload.payment_mode,
-    )
+    if payload.clock_out is None:
+        calculated = _open_work_log_values(
+            clock_in=payload.clock_in,
+            break_hours=payload.break_hours,
+            payment_mode=payload.payment_mode,
+        )
+    else:
+        calculated = _calculate_work_log(
+            employee=employee,
+            clock_in=payload.clock_in,
+            clock_out=payload.clock_out,
+            break_hours=payload.break_hours,
+            payment_mode=payload.payment_mode,
+        )
     work_log = EmployeeWorkLog(
         employee_id=employee.id,
         work_date=payload.work_date,
@@ -115,6 +131,14 @@ def calculate_employee_work_log(
     payment_mode: WorkPaymentMode,
 ) -> dict[str, Decimal | WorkPaymentMode | WorkType | time]:
     return _calculate_work_log(employee, clock_in, clock_out, break_hours, payment_mode)
+
+
+def open_employee_work_log_values(
+    clock_in: time,
+    break_hours: Decimal,
+    payment_mode: WorkPaymentMode,
+) -> dict[str, Decimal | WorkPaymentMode | WorkType | time | None]:
+    return _open_work_log_values(clock_in, break_hours, payment_mode)
 
 
 def _get_employee_or_404(db: Session, employee_id: int) -> Employee:
@@ -182,6 +206,28 @@ def _calculate_work_log(
         "overtime_amount": overtime_amount,
         "total_amount": total_amount,
         "amount": total_amount,
+    }
+
+
+def _open_work_log_values(
+    clock_in: time,
+    break_hours: Decimal,
+    payment_mode: WorkPaymentMode,
+) -> dict[str, Decimal | WorkPaymentMode | WorkType | time | None]:
+    return {
+        "clock_in": clock_in,
+        "clock_out": None,
+        "break_hours": _hours(break_hours),
+        "gross_hours": Decimal("0.00"),
+        "net_hours": Decimal("0.00"),
+        "regular_hours": Decimal("0.00"),
+        "overtime_hours": Decimal("0.00"),
+        "payment_mode": payment_mode,
+        "work_type": WorkType.ABSENCE,
+        "base_amount": Decimal("0.00"),
+        "overtime_amount": Decimal("0.00"),
+        "total_amount": Decimal("0.00"),
+        "amount": Decimal("0.00"),
     }
 
 

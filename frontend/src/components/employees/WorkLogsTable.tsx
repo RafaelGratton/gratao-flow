@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Rows3 } from "lucide-react";
+import { LogOut, Rows3 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
@@ -12,9 +12,8 @@ type Props = {
   employees: Employee[];
   workLogs: WorkLog[];
   loading: boolean;
-  payingId: number | null;
   selectedEmployee: Employee | null;
-  onPay: (workLog: WorkLog) => void;
+  onRegisterExit: (workLog: WorkLog) => void;
   onClearFilter: () => void;
 };
 
@@ -32,7 +31,7 @@ function formatTime(value: string | null) {
   return value.slice(0, 5);
 }
 
-export function WorkLogsTable({ employees, workLogs, loading, payingId, selectedEmployee, onPay, onClearFilter }: Props) {
+export function WorkLogsTable({ employees, workLogs, loading, selectedEmployee, onRegisterExit, onClearFilter }: Props) {
   const employeeById = new Map(employees.map((employee) => [employee.id, employee.name]));
 
   return (
@@ -84,7 +83,8 @@ export function WorkLogsTable({ employees, workLogs, loading, payingId, selected
                     "Base",
                     "Extra R$",
                     "Total",
-                    "Status",
+                    "Ponto",
+                    "Pagamento",
                     "Acoes"
                   ].map((heading) => (
                     <th key={heading} className="border-b border-line px-4 py-3">
@@ -118,27 +118,30 @@ export function WorkLogsTable({ employees, workLogs, loading, payingId, selected
                       {formatCurrency(workLog.total_amount)}
                     </td>
                     <td className="border-b border-line/70 px-4 py-4">
-                      <Badge tone={workLog.payment_status === "paid" ? "success" : "warning"}>
-                        {workLog.payment_status === "paid" ? "Pago" : "Aberto"}
+                      <Badge tone={workLog.work_status === "completed" ? "success" : "warning"}>
+                        {workLog.work_status === "completed" ? "Concluido" : "Em andamento"}
                       </Badge>
                     </td>
                     <td className="border-b border-line/70 px-4 py-4">
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="h-9 px-3"
-                        disabled={workLog.payment_status === "paid" || workLog.weekly_closing_id !== null}
-                        isLoading={payingId === workLog.id}
-                        onClick={() => onPay(workLog)}
-                        title={
-                          workLog.weekly_closing_id !== null
-                            ? "Registro vinculado a fechamento semanal"
-                            : undefined
-                        }
-                      >
-                        <CheckCircle2 size={15} />
-                        Marcar pago
-                      </Button>
+                      <Badge tone={workLog.payment_status === "paid" ? "success" : workLog.weekly_closing_id !== null ? "neutral" : "warning"}>
+                        {workLog.payment_status === "paid"
+                          ? "Pago"
+                          : workLog.weekly_closing_id !== null
+                            ? "Em fechamento"
+                            : "Aguardando fechamento"}
+                      </Badge>
+                    </td>
+                    <td className="border-b border-line/70 px-4 py-4">
+                      {workLog.work_status === "open" ? (
+                        <Button type="button" variant="secondary" className="h-9 px-3" onClick={() => onRegisterExit(workLog)}>
+                          <LogOut size={15} />
+                          Registrar saida
+                        </Button>
+                      ) : (
+                        <span className="text-xs font-semibold text-muted">
+                          {workLog.weekly_closing_id ? `Fechamento #${workLog.weekly_closing_id}` : "Pronto para fechamento"}
+                        </span>
+                      )}
                       {workLog.paid_at ? (
                         <p className="mt-2 text-xs font-semibold text-muted">{formatDateTime(workLog.paid_at)}</p>
                       ) : null}

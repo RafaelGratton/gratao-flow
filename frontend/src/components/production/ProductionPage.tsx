@@ -3,6 +3,8 @@
 import {
   AlertTriangle,
   ArrowRight,
+  ChevronDown,
+  ChevronRight,
   Eye,
   PackageCheck,
   RefreshCw,
@@ -27,6 +29,7 @@ import {
   buildOperationalQueueItem,
   itemFlowLabel,
   itemNeedsStage,
+  priorityLabel,
   type BottleneckKind,
   type OperationalQueueItem,
   type OperationalStatus,
@@ -53,6 +56,27 @@ type AuditAction = "loss" | "rework" | "adjustment";
 
 type AuditTarget = ItemTarget & {
   action: AuditAction;
+};
+
+type ProductionOrderGroup = {
+  order: OrderDetails;
+  rows: OperationalQueueItem[];
+  priority: OperationalPriority;
+  status: OperationalStatus;
+  statusLabel: string;
+  bottlenecks: BottleneckKind[];
+  blockers: string[];
+  latestTrace: OperationalQueueItem["traces"][number] | null;
+  maxAgeDays: number;
+  totals: {
+    requested: number;
+    cut: number;
+    printed: number;
+    sewn: number;
+    readyForDelivery: number;
+    delivered: number;
+    awaitingReturn: number;
+  };
 };
 
 const stageLabels: Record<StageFilter, string> = {
@@ -87,6 +111,22 @@ const priorityRank: Record<OperationalPriority, number> = {
   normal: 2
 };
 
+const statusRelevanceRank: Record<OperationalStatus, number> = {
+  blocked: 0,
+  waiting_return: 1,
+  partial_ready: 2,
+  ready: 3,
+  partial_delivered: 4,
+  in_sewing: 5,
+  waiting_sewing: 6,
+  in_print: 7,
+  waiting_print: 8,
+  in_cut: 9,
+  waiting_cut: 10,
+  outsourced: 11,
+  delivered: 12
+};
+
 export function ProductionPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<OrderDetails[]>([]);
@@ -95,6 +135,7 @@ export function ProductionPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [prioritySavingId, setPrioritySavingId] = useState<number | null>(null);
   const [auditTarget, setAuditTarget] = useState<AuditTarget | null>(null);
+  const [expandedOrderIds, setExpandedOrderIds] = useState<Set<number>>(() => new Set());
   const [filters, setFilters] = useState({
     search: "",
     client: "",
@@ -175,13 +216,41 @@ export function ProductionPage() {
 
   const summary = useMemo(() => {
     return {
-      total: filteredRows.length,
-      critical: filteredRows.filter((row) => row.item.operational_priority === "critical").length,
+      visibleItems: filteredRows.length,
       ready: filteredRows.reduce((total, row) => total + row.balances.readyForDelivery, 0),
       awaitingReturn: filteredRows.reduce((total, row) => total + row.balances.awaitingReturn, 0),
-      blocked: filteredRows.filter((row) => row.bottlenecks.length > 0).length
+      visibleOrders: 0,
+      blockedOrders: 0
     };
   }, [filteredRows]);
+
+  const orderGroups = useMemo(() => {
+    const groups = new Map<number, OperationalQueueItem[]>();
+    for (const row of filteredRows) {
+      const current = groups.get(row.order.id) ?? [];
+      current.push(row);
+      groups.set(row.order.id, current);
+    }
+
+    return Array.from(groups.values())
+      .map((groupRows) => buildOrderGroup(groupRows))
+      .sort((a, b) => {
+        const priorityDiff = priorityRank[a.priority] - priorityRank[b.priority];
+        if (priorityDiff !== 0) return priorityDiff;
+        const bottleneckDiff = Number(b.bottlenecks.length > 0) - Number(a.bottlenecks.length > 0);
+        if (bottleneckDiff !== 0) return bottleneckDiff;
+        return b.maxAgeDays - a.maxAgeDays || a.order.id - b.order.id;
+      });
+  }, [filteredRows]);
+
+  const groupedSummary = useMemo(
+    () => ({
+      ...summary,
+      visibleOrders: orderGroups.length,
+      blockedOrders: orderGroups.filter((group) => group.bottlenecks.length > 0).length
+    }),
+    [orderGroups, summary]
+  );
 
   function replaceOrder(updated: OrderDetails, message: string) {
     setOrders((current) => current.map((order) => (order.id === updated.id ? updated : order)));
@@ -221,7 +290,7 @@ export function ProductionPage() {
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent-dark">
-            Painel operacional por item
+            Painel operacional por OS
           </p>
           <h1 className="mt-1 text-3xl font-black text-ink">Producao</h1>
         </div>
@@ -243,11 +312,11 @@ export function ProductionPage() {
       ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <SummaryTile label="Itens na fila" value={summary.total} />
-        <SummaryTile label="Criticos" value={summary.critical} tone={summary.critical > 0 ? "danger" : "neutral"} />
-        <SummaryTile label="Pronto p/ entrega" value={summary.ready} tone={summary.ready > 0 ? "success" : "neutral"} />
-        <SummaryTile label="Ag. retorno" value={summary.awaitingReturn} tone={summary.awaitingReturn > 0 ? "warning" : "neutral"} />
-        <SummaryTile label="Gargalos" value={summary.blocked} tone={summary.blocked > 0 ? "danger" : "neutral"} />
+        <SummaryTile label="OS visiveis" value={groupedSummary.visibleOrders} />
+        <SummaryTile label="Itens visiveis" value={groupedSummary.visibleItems} />
+        <SummaryTile label="Pronto p/ entrega" value={groupedSummary.ready} tone={groupedSummary.ready > 0 ? "success" : "neutral"} />
+        <SummaryTile label="Ag. retorno" value={groupedSummary.awaitingReturn} tone={groupedSummary.awaitingReturn > 0 ? "warning" : "neutral"} />
+        <SummaryTile label="Gargalos" value={groupedSummary.blockedOrders} tone={groupedSummary.blockedOrders > 0 ? "danger" : "neutral"} />
       </div>
 
       <Card>
@@ -332,27 +401,46 @@ export function ProductionPage() {
             <div key={index} className="h-20 animate-pulse rounded-lg border border-line bg-white" />
           ))}
         </div>
-      ) : filteredRows.length === 0 ? (
+      ) : orderGroups.length === 0 ? (
         <Card>
           <CardContent>
-            <p className="text-sm font-semibold text-muted">Nenhum item encontrado para os filtros atuais.</p>
+            <p className="text-sm font-semibold text-muted">Nenhuma OS encontrada para os filtros atuais.</p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {filteredRows.map((row) => (
-            <ProductionQueueRow
-              key={`${row.order.id}-${row.item.id}`}
-              row={row}
-              prioritySaving={prioritySavingId === row.item.id}
-              onPriorityChange={(priority) => void updatePriority(row, priority)}
-              onOpenOrder={() => router.push(`/orders/${row.order.id}`)}
-              onCut={() => router.push("/cutting")}
-              onPrint={() => router.push("/printing")}
-              onSew={() => router.push("/sewing")}
-              onOutsource={() => router.push("/outsourcing")}
-              onDeliver={() => router.push("/deliveries")}
-              onAudit={(action) => setAuditTarget({ order: row.order, item: row.item, action })}
+          {orderGroups.map((group) => (
+            <ProductionOrderCard
+              key={group.order.id}
+              group={group}
+              expanded={expandedOrderIds.has(group.order.id)}
+              onToggle={() =>
+                setExpandedOrderIds((current) => {
+                  const next = new Set(current);
+                  if (next.has(group.order.id)) {
+                    next.delete(group.order.id);
+                  } else {
+                    next.add(group.order.id);
+                  }
+                  return next;
+                })
+              }
+              onOpenOrder={() => router.push(`/orders/${group.order.id}`)}
+              renderItem={(row) => (
+                <ProductionQueueRow
+                  key={`${row.order.id}-${row.item.id}`}
+                  row={row}
+                  prioritySaving={prioritySavingId === row.item.id}
+                  onPriorityChange={(priority) => void updatePriority(row, priority)}
+                  onOpenOrder={() => router.push(`/orders/${row.order.id}`)}
+                  onCut={() => router.push("/cutting")}
+                  onPrint={() => router.push("/printing")}
+                  onSew={() => router.push("/sewing")}
+                  onOutsource={() => router.push("/outsourcing")}
+                  onDeliver={() => router.push("/deliveries")}
+                  onAudit={(action) => setAuditTarget({ order: row.order, item: row.item, action })}
+                />
+              )}
             />
           ))}
         </div>
@@ -364,6 +452,186 @@ export function ProductionPage() {
         onUpdated={(order, message) => replaceOrder(order, message)}
         onError={setError}
       />
+    </div>
+  );
+}
+
+function buildOrderGroup(rows: OperationalQueueItem[]): ProductionOrderGroup {
+  const relevantRow = [...rows].sort((a, b) => {
+    const bottleneckDiff = Number(b.bottlenecks.length > 0) - Number(a.bottlenecks.length > 0);
+    if (bottleneckDiff !== 0) return bottleneckDiff;
+    const statusDiff = statusRelevanceRank[a.status] - statusRelevanceRank[b.status];
+    if (statusDiff !== 0) return statusDiff;
+    const priorityDiff = priorityRank[a.item.operational_priority] - priorityRank[b.item.operational_priority];
+    if (priorityDiff !== 0) return priorityDiff;
+    return b.ageDays - a.ageDays;
+  })[0];
+  const latestTrace =
+    rows
+      .flatMap((row) => row.traces)
+      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())[0] ?? null;
+
+  return {
+    order: relevantRow.order,
+    rows,
+    priority: rows.reduce(
+      (highest, row) =>
+        priorityRank[row.item.operational_priority] < priorityRank[highest]
+          ? row.item.operational_priority
+          : highest,
+      rows[0].item.operational_priority
+    ),
+    status: relevantRow.status,
+    statusLabel: relevantRow.statusLabel,
+    bottlenecks: Array.from(new Set(rows.flatMap((row) => row.bottlenecks))),
+    blockers: Array.from(new Set(rows.flatMap((row) => row.blockers))),
+    latestTrace,
+    maxAgeDays: Math.max(...rows.map((row) => row.ageDays)),
+    totals: {
+      requested: rows.reduce((total, row) => total + row.balances.requested, 0),
+      cut: rows.reduce((total, row) => total + row.balances.cut, 0),
+      printed: rows.reduce((total, row) => total + row.balances.printed, 0),
+      sewn: rows.reduce((total, row) => total + row.balances.sewn, 0),
+      readyForDelivery: rows.reduce((total, row) => total + row.balances.readyForDelivery, 0),
+      delivered: rows.reduce((total, row) => total + row.balances.delivered, 0),
+      awaitingReturn: rows.reduce((total, row) => total + row.balances.awaitingReturn, 0)
+    }
+  };
+}
+
+function ProductionOrderCard({
+  group,
+  expanded,
+  onToggle,
+  onOpenOrder,
+  renderItem
+}: {
+  group: ProductionOrderGroup;
+  expanded: boolean;
+  onToggle: () => void;
+  onOpenOrder: () => void;
+  renderItem: (row: OperationalQueueItem) => ReactNode;
+}) {
+  return (
+    <article
+      className={cn(
+        "overflow-hidden rounded-lg border bg-white shadow-insetline",
+        group.totals.readyForDelivery > 0 && "border-success/25",
+        group.totals.readyForDelivery === 0 && group.bottlenecks.length > 0 && "border-danger/20 bg-danger/[0.025]"
+      )}
+    >
+      <div className="space-y-4 p-4">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white text-ink shadow-insetline transition hover:border-accent/40 hover:text-accent-dark focus:focus-ring"
+                onClick={onToggle}
+                aria-label={expanded ? "Ocultar itens da OS" : "Ver itens da OS"}
+              >
+                {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              </button>
+              <span className="text-lg font-black text-ink">OS #{group.order.id}</span>
+              <StatusPill status={group.status} label={group.statusLabel} />
+              <Badge tone={group.priority === "critical" ? "danger" : group.priority === "urgent" ? "warning" : "neutral"}>
+                {priorityLabel(group.priority)}
+              </Badge>
+            </div>
+            <div>
+              <p className="text-sm font-black text-ink">{group.order.client.name}</p>
+              <p className="mt-1 text-xs font-semibold text-muted">
+                {group.rows.length} {group.rows.length === 1 ? "item visivel" : "itens visiveis"} pelos filtros
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="secondary" className="h-9 px-3 text-xs" onClick={onOpenOrder}>
+              <Eye size={14} />
+              OS
+            </Button>
+            <Button type="button" className="h-9 px-3 text-xs" variant="secondary" onClick={onToggle}>
+              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              {expanded ? "Ocultar itens" : "Ver itens"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+          <OrderMetric label="Solicitado" value={group.totals.requested} />
+          <OrderMetric label="Corte" value={group.totals.cut} />
+          <OrderMetric label="DTF" value={group.totals.printed} />
+          <OrderMetric label="Costura" value={group.totals.sewn} />
+          <OrderMetric label="Pronto entrega" value={group.totals.readyForDelivery} tone="success" />
+          <OrderMetric label="Entregue" value={group.totals.delivered} />
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_minmax(260px,1fr)]">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-muted">Gargalos e alertas</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {group.bottlenecks.length === 0 && group.blockers.length === 0 ? <Badge tone="success">Sem gargalo</Badge> : null}
+              {group.bottlenecks.map((bottleneck) => (
+                <BottleneckBadge key={bottleneck} bottleneck={bottleneck} />
+              ))}
+              {group.blockers.slice(0, 4).map((blocker) => (
+                <AlertChip key={blocker} label={blocker} positive={group.totals.readyForDelivery > 0 && blocker.includes("pronto")} />
+              ))}
+              {group.blockers.length > 4 ? <Badge tone="warning">+{group.blockers.length - 4} alertas</Badge> : null}
+            </div>
+          </div>
+          <LatestMovement latest={group.latestTrace} />
+        </div>
+      </div>
+
+      {expanded ? (
+        <div className="space-y-3 border-t border-line bg-[#FCFAF6]/70 p-3">
+          {group.rows.map((row) => renderItem(row))}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function OrderMetric({
+  label,
+  value,
+  tone = "neutral"
+}: {
+  label: string;
+  value: number;
+  tone?: "neutral" | "success" | "warning";
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-md border border-line bg-white px-3 py-2 shadow-insetline",
+        tone === "success" && value > 0 && "border-success/20 bg-success/10",
+        tone === "warning" && value > 0 && "border-warning/25 bg-warning/10"
+      )}
+    >
+      <p className="text-[10px] font-black uppercase tracking-[0.1em] text-muted">{label}</p>
+      <p className="mt-1 text-lg font-black text-ink">{value}</p>
+    </div>
+  );
+}
+
+function LatestMovement({ latest }: { latest: ProductionOrderGroup["latestTrace"] }) {
+  return (
+    <div className="rounded-md border border-line bg-white p-3">
+      <p className="text-[10px] font-black uppercase tracking-[0.12em] text-muted">Ultima movimentacao</p>
+      {latest ? (
+        <div className="mt-2">
+          <p className="font-semibold text-ink">{latest.label}</p>
+          <p className="mt-1 text-xs text-muted">
+            {latest.actor} / {formatDateTime(latest.at)}
+          </p>
+          {latest.notes ? <p className="mt-1 text-xs text-muted">{latest.notes}</p> : null}
+        </div>
+      ) : (
+        <p className="mt-2 text-xs font-semibold text-muted">Sem movimentacao</p>
+      )}
     </div>
   );
 }
@@ -404,15 +672,13 @@ function ProductionQueueRow({
       <div className="grid gap-4 p-4 xl:grid-cols-[minmax(260px,0.9fr)_minmax(320px,1.2fr)_minmax(260px,0.9fr)_220px]">
         <section className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-lg font-black text-ink">OS #{row.order.id}</span>
             <Badge tone="accent">Item {row.itemNumber}</Badge>
             <StatusPill status={row.status} label={row.statusLabel} />
           </div>
           <div>
             <p className="text-sm font-black text-ink">{row.item.product.name}</p>
-            <p className="mt-1 text-sm font-semibold text-muted">{row.order.client.name}</p>
             <p className="mt-1 text-xs font-semibold text-muted">
-              Cor {row.item.color || "sem cor"} / Tam. {row.item.size.label}
+              Tam. {row.item.size.label} / Cor {row.item.color || "sem cor"}
             </p>
             {row.item.notes ? <p className="mt-2 text-xs text-muted">{row.item.notes}</p> : null}
           </div>

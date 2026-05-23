@@ -1,27 +1,54 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import type { Employee, WorkLog } from "@/components/employees/types";
 import type { WeeklyClosing, WeeklyClosingCreate } from "@/components/weekly-closings/types";
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/format";
+import type { PixKeyType } from "./types";
 
 type Props = {
   open: boolean;
   employees: Employee[];
   workLogs: WorkLog[];
+  initialEmployeeId?: number | null;
   onClose: () => void;
   onCreated: (closing: WeeklyClosing) => void;
 };
+
+function formatDateInput(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function currentWeekPeriod() {
+  const now = new Date();
+  const day = now.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + mondayOffset);
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  return {
+    start: formatDateInput(monday),
+    end: formatDateInput(sunday)
+  };
+}
 
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function WeeklyClosingCreateModal({ open, employees, workLogs, onClose, onCreated }: Props) {
+const pixTypeLabels: Record<PixKeyType, string> = {
+  cpf: "CPF",
+  email: "E-mail",
+  phone: "Telefone",
+  random: "Chave aleatoria"
+};
+
+export function WeeklyClosingCreateModal({ open, employees, workLogs, initialEmployeeId, onClose, onCreated }: Props) {
   const [employeeId, setEmployeeId] = useState("");
   const [startDate, setStartDate] = useState(today());
   const [endDate, setEndDate] = useState(today());
@@ -31,6 +58,18 @@ export function WeeklyClosingCreateModal({ open, employees, workLogs, onClose, o
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!open) return;
+    const week = currentWeekPeriod();
+    setEmployeeId(initialEmployeeId ? String(initialEmployeeId) : "");
+    setStartDate(week.start);
+    setEndDate(week.end);
+    setDiscounts("0.00");
+    setAdvances("0.00");
+    setNotes("");
+    setError(null);
+  }, [initialEmployeeId, open]);
+
   const selectedLogs = useMemo(() => {
     if (!employeeId || !startDate || !endDate) return [];
     const id = Number(employeeId);
@@ -39,9 +78,25 @@ export function WeeklyClosingCreateModal({ open, employees, workLogs, onClose, o
         log.employee_id === id &&
         log.work_date >= startDate &&
         log.work_date <= endDate &&
+        log.work_status === "completed" &&
+        log.payment_status === "pending" &&
         log.weekly_closing_id === null
     );
   }, [employeeId, endDate, startDate, workLogs]);
+
+  const openLogs = useMemo(() => {
+    if (!employeeId || !startDate || !endDate) return [];
+    const id = Number(employeeId);
+    return workLogs.filter(
+      (log) =>
+        log.employee_id === id &&
+        log.work_date >= startDate &&
+        log.work_date <= endDate &&
+        log.work_status === "open"
+    );
+  }, [employeeId, endDate, startDate, workLogs]);
+
+  const selectedEmployee = employees.find((employee) => employee.id === Number(employeeId)) ?? null;
 
   const preview = useMemo(() => {
     const base = selectedLogs.reduce((total, log) => total + Number(log.base_amount), 0);
@@ -55,6 +110,14 @@ export function WeeklyClosingCreateModal({ open, employees, workLogs, onClose, o
   if (!open) return null;
 
   async function submit() {
+    if (selectedLogs.length === 0) {
+      setError("Nao existem registros concluidos e em aberto para pagamento neste periodo.");
+      return;
+    }
+    if (openLogs.length > 0) {
+      setError("Finalize os registros sem saida antes de criar o fechamento.");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -130,6 +193,19 @@ export function WeeklyClosingCreateModal({ open, employees, workLogs, onClose, o
             <PreviewTile label="Extras" value={`${preview.extra.toFixed(2)}h`} />
             <PreviewTile label="Total" value={formatCurrency(preview.total)} strong />
           </div>
+          <div className="rounded-md border border-line bg-[#FCFAF6] p-4">
+            <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Pix do funcionario</p>
+            <p className="mt-2 text-sm font-bold text-ink">
+              {selectedEmployee?.pix_key
+                ? `${selectedEmployee.pix_key_type ? pixTypeLabels[selectedEmployee.pix_key_type] : "Pix"} / ${selectedEmployee.pix_key}`
+                : "Pix pendente"}
+            </p>
+            {openLogs.length > 0 ? (
+              <p className="mt-2 text-sm font-semibold text-danger">
+                {openLogs.length} registro(s) sem saida no periodo.
+              </p>
+            ) : null}
+          </div>
           <label className="block space-y-2">
             <span className="text-sm font-semibold text-ink">Notas</span>
             <textarea
@@ -143,7 +219,12 @@ export function WeeklyClosingCreateModal({ open, employees, workLogs, onClose, o
             <Button type="button" variant="secondary" onClick={onClose}>
               Cancelar
             </Button>
-            <Button type="button" isLoading={loading} disabled={!employeeId || !startDate || !endDate} onClick={submit}>
+            <Button
+              type="button"
+              isLoading={loading}
+              disabled={!employeeId || !startDate || !endDate || selectedLogs.length === 0 || openLogs.length > 0}
+              onClick={submit}
+            >
               Criar fechamento
             </Button>
           </div>

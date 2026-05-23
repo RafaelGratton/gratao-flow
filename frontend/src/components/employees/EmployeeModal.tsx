@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/format";
-import type { Employee } from "./types";
+import type { Employee, PixKeyType } from "./types";
 
 type Props = {
   open: boolean;
@@ -22,8 +22,17 @@ const initialState = {
   daily_rate: "120.00",
   standard_daily_hours: "8",
   standard_lunch_hours: "1",
+  pix_key_type: "",
+  pix_key: "",
   is_active: true,
   notes: ""
+};
+
+const pixTypeLabels: Record<PixKeyType, string> = {
+  cpf: "CPF",
+  email: "E-mail",
+  phone: "Telefone",
+  random: "Chave aleatoria"
 };
 
 export function EmployeeModal({ open, employee, onClose, onSaved }: Props) {
@@ -42,6 +51,8 @@ export function EmployeeModal({ open, employee, onClose, onSaved }: Props) {
               daily_rate: employee.daily_rate,
               standard_daily_hours: employee.standard_daily_hours,
               standard_lunch_hours: employee.standard_lunch_hours,
+              pix_key_type: employee.pix_key_type ?? "",
+              pix_key: employee.pix_key ?? "",
               is_active: employee.is_active,
               notes: employee.notes ?? ""
             }
@@ -86,6 +97,8 @@ export function EmployeeModal({ open, employee, onClose, onSaved }: Props) {
       daily_rate: form.daily_rate,
       standard_daily_hours: form.standard_daily_hours,
       standard_lunch_hours: form.standard_lunch_hours,
+      pix_key_type: form.pix_key_type || null,
+      pix_key: form.pix_key.trim() || null,
       is_active: form.is_active,
       notes: form.notes.trim() || null
     };
@@ -156,6 +169,26 @@ export function EmployeeModal({ open, employee, onClose, onSaved }: Props) {
               step="0.25"
               value={form.standard_lunch_hours}
               onChange={(event) => setForm((current) => ({ ...current, standard_lunch_hours: event.target.value }))}
+            />
+            <label className="block space-y-2">
+              <span className="text-sm font-semibold text-ink">Tipo da chave Pix</span>
+              <select
+                className="h-12 w-full rounded-md border border-line bg-white px-3 text-sm text-ink shadow-insetline transition focus:focus-ring"
+                value={form.pix_key_type}
+                onChange={(event) => setForm((current) => ({ ...current, pix_key_type: event.target.value }))}
+              >
+                <option value="">Sem Pix cadastrado</option>
+                {(Object.keys(pixTypeLabels) as PixKeyType[]).map((type) => (
+                  <option key={type} value={type}>
+                    {pixTypeLabels[type]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Input
+              label="Chave Pix"
+              value={form.pix_key}
+              onChange={(event) => setForm((current) => ({ ...current, pix_key: event.target.value }))}
             />
           </div>
           <div className="rounded-md border border-line bg-[#FCFAF6] p-4">

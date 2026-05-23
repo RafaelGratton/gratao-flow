@@ -21,7 +21,8 @@ export function ReceivablesTable({ orders, loading, onAddPayment }: Props) {
       <CardHeader className="bg-white/70">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent-dark">Recebimentos de OS</p>
-          <h2 className="mt-1 text-xl font-black text-ink">Clientes e saldos</h2>
+          <h2 className="mt-1 text-xl font-black text-ink">Clientes e saldos no periodo</h2>
+          <p className="mt-2 text-sm text-muted">OS faturadas ou com pagamento registrado no intervalo.</p>
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -35,8 +36,8 @@ export function ReceivablesTable({ orders, loading, onAddPayment }: Props) {
           <div className="p-5">
             <EmptyState
               icon={<ReceiptText size={20} />}
-              title="Nenhuma OS para receber"
-              description="As ordens cadastradas aparecem aqui com total, pago e pendente."
+              title="Nenhuma OS no periodo"
+              description="OS faturadas ou recebidas no intervalo aparecem aqui com total, pago e pendente."
             />
           </div>
         ) : (

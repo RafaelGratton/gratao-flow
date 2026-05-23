@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarPlus, Pencil, Plus, Rows3, UserRoundPlus } from "lucide-react";
+import { CalendarCheck2, CalendarPlus, Pencil, Plus, Rows3, UserRoundPlus } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
@@ -14,10 +14,11 @@ type Props = {
   onCreate: () => void;
   onEdit: (employee: Employee) => void;
   onRegisterDay: (employee: Employee) => void;
+  onCloseWeek: (employee: Employee) => void;
   onViewLogs: (employee: Employee) => void;
 };
 
-export function EmployeeTable({ employees, loading, onCreate, onEdit, onRegisterDay, onViewLogs }: Props) {
+export function EmployeeTable({ employees, loading, onCreate, onEdit, onRegisterDay, onCloseWeek, onViewLogs }: Props) {
   return (
     <Card className="overflow-hidden">
       <CardHeader className="bg-white/70">
@@ -54,10 +55,10 @@ export function EmployeeTable({ employees, loading, onCreate, onEdit, onRegister
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-[1120px] w-full border-separate border-spacing-0 text-left text-sm">
+            <table className="min-w-[1240px] w-full border-separate border-spacing-0 text-left text-sm">
               <thead>
                 <tr className="bg-[#FCFAF6] text-xs font-black uppercase tracking-[0.12em] text-muted">
-                  {["Nome", "Funcao", "Diaria", "Jornada", "Almoco", "Hora", "Status", "Acoes"].map((heading) => (
+                  {["Nome", "Funcao", "Diaria", "Jornada", "Almoco", "Hora", "Pix", "Status", "Acoes"].map((heading) => (
                     <th key={heading} className="border-b border-line px-4 py-3">
                       {heading}
                     </th>
@@ -78,6 +79,11 @@ export function EmployeeTable({ employees, loading, onCreate, onEdit, onRegister
                       {formatCurrency(employee.hourly_rate)}
                     </td>
                     <td className="border-b border-line/70 px-4 py-4">
+                      <Badge tone={employee.pix_key ? "success" : "warning"}>
+                        {employee.pix_key ? "Cadastrado" : "Pendente"}
+                      </Badge>
+                    </td>
+                    <td className="border-b border-line/70 px-4 py-4">
                       <Badge tone={employee.is_active ? "success" : "neutral"}>
                         {employee.is_active ? "Ativo" : "Inativo"}
                       </Badge>
@@ -90,7 +96,11 @@ export function EmployeeTable({ employees, loading, onCreate, onEdit, onRegister
                         </Button>
                         <Button type="button" variant="secondary" className="h-9 px-3" onClick={() => onRegisterDay(employee)}>
                           <CalendarPlus size={15} />
-                          Registrar dia
+                          Entrada
+                        </Button>
+                        <Button type="button" variant="ghost" className="h-9 px-3" onClick={() => onCloseWeek(employee)}>
+                          <CalendarCheck2 size={15} />
+                          Fechar semana
                         </Button>
                         <Button type="button" variant="ghost" className="h-9 px-3" onClick={() => onViewLogs(employee)}>
                           <Rows3 size={15} />

@@ -4,7 +4,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
-from app.models.enums import EmployeePaymentStatus, WorkPaymentMode, WorkType
+from app.models.enums import EmployeePaymentStatus, PixKeyType, WorkPaymentMode, WorkType
 
 MoneyDecimal = Annotated[
     Decimal,
@@ -23,6 +23,8 @@ class EmployeeCreate(BaseModel):
     daily_rate: MoneyDecimal = Decimal("120.00")
     standard_daily_hours: HoursDecimal = Decimal("8.00")
     standard_lunch_hours: HoursDecimal = Decimal("1.00")
+    pix_key_type: PixKeyType | None = None
+    pix_key: str | None = None
     is_active: bool = True
     notes: str | None = None
 
@@ -34,7 +36,7 @@ class EmployeeCreate(BaseModel):
             raise ValueError("name is required")
         return stripped
 
-    @field_validator("role", "phone", "notes")
+    @field_validator("role", "phone", "pix_key", "notes")
     @classmethod
     def blank_to_none(cls, value: str | None) -> str | None:
         if value is None:
@@ -46,6 +48,8 @@ class EmployeeCreate(BaseModel):
     def validate_hours(self) -> "EmployeeCreate":
         if self.standard_daily_hours <= 0:
             raise ValueError("standard_daily_hours must be greater than zero")
+        if self.pix_key_type is None and self.pix_key is not None:
+            raise ValueError("pix_key_type is required when pix_key is informed")
         return self
 
 
@@ -56,6 +60,8 @@ class EmployeeUpdate(BaseModel):
     daily_rate: MoneyDecimal | None = None
     standard_daily_hours: HoursDecimal | None = None
     standard_lunch_hours: HoursDecimal | None = None
+    pix_key_type: PixKeyType | None = None
+    pix_key: str | None = None
     is_active: bool | None = None
     notes: str | None = None
 
@@ -69,7 +75,7 @@ class EmployeeUpdate(BaseModel):
             raise ValueError("name is required")
         return stripped
 
-    @field_validator("role", "phone", "notes")
+    @field_validator("role", "phone", "pix_key", "notes")
     @classmethod
     def blank_to_none(cls, value: str | None) -> str | None:
         if value is None:
@@ -92,6 +98,8 @@ class EmployeeRead(BaseModel):
     daily_rate: MoneyDecimal
     standard_daily_hours: HoursDecimal
     standard_lunch_hours: HoursDecimal
+    pix_key_type: PixKeyType | None
+    pix_key: str | None
     hourly_rate: MoneyDecimal
     is_active: bool
     notes: str | None
@@ -112,7 +120,7 @@ class EmployeeRead(BaseModel):
 class WorkLogCreate(BaseModel):
     work_date: date
     clock_in: time
-    clock_out: time
+    clock_out: time | None = None
     break_hours: HoursDecimal = Decimal("1.00")
     payment_mode: WorkPaymentMode = WorkPaymentMode.FULL_DAY
     notes: str | None = None
@@ -127,12 +135,20 @@ class WorkLogUpdate(BaseModel):
     notes: str | None = None
 
 
+class WorkLogClockOut(BaseModel):
+    clock_out: time
+    break_hours: HoursDecimal | None = None
+    payment_mode: WorkPaymentMode | None = None
+    notes: str | None = None
+
+
 class WorkLogRead(BaseModel):
     id: int
     employee_id: int
     work_date: date
     clock_in: time | None
     clock_out: time | None
+    work_status: str
     break_hours: HoursDecimal
     gross_hours: HoursDecimal
     net_hours: HoursDecimal

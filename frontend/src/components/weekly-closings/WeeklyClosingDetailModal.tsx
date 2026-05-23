@@ -4,7 +4,7 @@ import { X } from "lucide-react";
 import type { Employee } from "@/components/employees/types";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import type { WeeklyClosing, WeeklyClosingStatus } from "@/components/weekly-closings/types";
+import type { PixKeyType, WeeklyClosing, WeeklyClosingStatus } from "@/components/weekly-closings/types";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 
 type Props = {
@@ -34,6 +34,22 @@ const moneyFields: Array<[keyof WeeklyClosing, string]> = [
   ["advances", "Adiantamentos"],
   ["total_payable", "Total a pagar"]
 ];
+
+const pixTypeLabels: Record<PixKeyType, string> = {
+  cpf: "CPF",
+  email: "E-mail",
+  phone: "Telefone",
+  random: "Chave aleatoria"
+};
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
+}
+
+function formatTime(value: string | null) {
+  if (!value) return "-";
+  return value.slice(0, 5);
+}
 
 export function WeeklyClosingDetailModal({ closing, employees, onClose }: Props) {
   if (!closing) return null;
@@ -92,6 +108,48 @@ export function WeeklyClosingDetailModal({ closing, employees, onClose }: Props)
                 <p className="mt-2 text-lg font-black text-ink">{formatCurrency(String(closing[field]))}</p>
               </div>
             ))}
+          </div>
+          <div className="rounded-md border border-line bg-[#FCFAF6] p-4">
+            <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Pix usado neste fechamento</p>
+            <p className="mt-2 text-sm font-bold text-ink">
+              {closing.employee_pix_key
+                ? `${closing.employee_pix_key_type ? pixTypeLabels[closing.employee_pix_key_type] : "Pix"} / ${closing.employee_pix_key}`
+                : "Pix pendente"}
+            </p>
+          </div>
+          <div className="rounded-md border border-line bg-white p-4 shadow-insetline">
+            <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Dias incluidos</p>
+            {closing.work_logs.length === 0 ? (
+              <p className="mt-2 text-sm leading-6 text-ink">Nenhum registro vinculado.</p>
+            ) : (
+              <div className="mt-3 overflow-x-auto">
+                <table className="min-w-[620px] w-full border-separate border-spacing-0 text-left text-sm">
+                  <thead>
+                    <tr className="text-xs font-black uppercase tracking-[0.12em] text-muted">
+                      {["Data", "Entrada", "Saida", "Liquidas", "Extras", "Total"].map((heading) => (
+                        <th key={heading} className="border-b border-line px-3 py-2">
+                          {heading}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {closing.work_logs.map((log) => (
+                      <tr key={log.id}>
+                        <td className="border-b border-line/70 px-3 py-3 font-bold text-ink">{formatDate(log.work_date)}</td>
+                        <td className="border-b border-line/70 px-3 py-3 text-muted">{formatTime(log.clock_in)}</td>
+                        <td className="border-b border-line/70 px-3 py-3 text-muted">{formatTime(log.clock_out)}</td>
+                        <td className="border-b border-line/70 px-3 py-3 text-muted">{log.net_hours}h</td>
+                        <td className="border-b border-line/70 px-3 py-3 text-muted">{log.overtime_hours}h</td>
+                        <td className="border-b border-line/70 px-3 py-3 font-black text-ink">
+                          {formatCurrency(log.total_amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
           <div className="rounded-md border border-line bg-[#FCFAF6] p-4">
             <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Notas</p>

@@ -29,8 +29,14 @@ def create_weekly_closing(
     if employee is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
     _ensure_period_does_not_overlap(db, payload.employee_id, payload.start_date, payload.end_date)
+    _ensure_no_open_work_logs_in_period(db, payload.employee_id, payload.start_date, payload.end_date)
 
     work_logs = _work_logs_in_period(db, payload.employee_id, payload.start_date, payload.end_date)
+    if not work_logs:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nao existem registros concluidos e em aberto para pagamento neste periodo.",
+        )
     totals = _calculate_employee_totals(work_logs, payload.discounts, payload.advances)
     closing = WeeklyClosing(
         employee_id=payload.employee_id,
@@ -38,6 +44,8 @@ def create_weekly_closing(
         end_date=payload.end_date,
         notes=payload.notes,
         status=WeeklyClosingStatus.OPEN,
+        employee_pix_key_type=employee.pix_key_type,
+        employee_pix_key=employee.pix_key,
         **totals,
         **_legacy_zero_totals(),
     )
@@ -46,6 +54,11 @@ def create_weekly_closing(
     db.flush()
 
     for work_log in work_logs:
+        if work_log.weekly_closing_id is not None or work_log.payment_status == EmployeePaymentStatus.PAID:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Um ou mais registros ja pertencem a outro fechamento.",
+            )
         work_log.weekly_closing_id = closing.id
 
     db.commit()
@@ -142,10 +155,34 @@ def _work_logs_in_period(
             EmployeeWorkLog.employee_id == employee_id,
             EmployeeWorkLog.work_date >= start_date,
             EmployeeWorkLog.work_date <= end_date,
+            EmployeeWorkLog.clock_out.is_not(None),
+            EmployeeWorkLog.weekly_closing_id.is_(None),
+            EmployeeWorkLog.payment_status == EmployeePaymentStatus.PENDING,
         )
         .order_by(EmployeeWorkLog.work_date)
     )
     return list(db.scalars(query))
+
+
+def _ensure_no_open_work_logs_in_period(
+    db: Session,
+    employee_id: int,
+    start_date: date,
+    end_date: date,
+) -> None:
+    open_log_id = db.scalar(
+        select(EmployeeWorkLog.id).where(
+            EmployeeWorkLog.employee_id == employee_id,
+            EmployeeWorkLog.work_date >= start_date,
+            EmployeeWorkLog.work_date <= end_date,
+            EmployeeWorkLog.clock_out.is_(None),
+        )
+    )
+    if open_log_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Existem registros sem hora de saida neste periodo. Finalize o ponto antes do fechamento.",
+        )
 
 
 def _calculate_employee_totals(
