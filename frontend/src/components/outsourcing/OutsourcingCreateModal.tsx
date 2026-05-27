@@ -36,6 +36,7 @@ export function OutsourcingCreateModal({
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const paused = Boolean(order?.production_paused);
 
   useEffect(() => {
     if (open) {
@@ -63,13 +64,14 @@ export function OutsourcingCreateModal({
     const quantity = Number(quantitySent);
     const customer = Number(customerUnitPrice);
     const payout = Number(outsourcerUnitPrice);
+    if (paused) return "A producao desta OS esta pausada. Retome a OS antes de enviar para terceirizacao.";
     if (!quantitySent || !customerUnitPrice || !outsourcerUnitPrice) return null;
     if (!Number.isInteger(quantity) || quantity <= 0) return "Informe uma quantidade inteira maior que zero.";
     if (quantity > availableQuantity) return `Quantidade disponivel: ${availableQuantity}.`;
     if (customer < 0 || payout < 0) return "Valores devem ser maiores ou iguais a zero.";
     if (payout > customer) return "O repasse nao pode ser maior que o valor cobrado.";
     return null;
-  }, [availableQuantity, customerUnitPrice, outsourcerUnitPrice, quantitySent]);
+  }, [availableQuantity, customerUnitPrice, outsourcerUnitPrice, paused, quantitySent]);
 
   if (!open || !order || !item) return null;
 
@@ -112,6 +114,11 @@ export function OutsourcingCreateModal({
         </div>
         <div className="space-y-4 p-5">
           {error ? <div className="rounded-md border border-danger/20 bg-danger/10 p-3 text-sm font-semibold text-danger">{error}</div> : null}
+          {paused ? (
+            <div className="rounded-md border border-warning/25 bg-warning/10 p-3 text-sm font-semibold text-warning">
+              Producao pausada. Retome a OS para enviar pecas para terceirizacao.
+            </div>
+          ) : null}
           <div className="grid gap-4 md:grid-cols-2">
             <label className="block space-y-2">
               <span className="text-sm font-semibold text-ink">Terceirizado</span>
@@ -125,7 +132,7 @@ export function OutsourcingCreateModal({
             <div className="flex items-end">
               <Button type="button" variant="secondary" className="w-full" onClick={onQuickCreate}>Cadastrar terceirizado</Button>
             </div>
-            <Input label={`Quantidade enviada (disponivel: ${availableQuantity})`} type="number" min="1" max={availableQuantity} step="1" value={quantitySent} onChange={(event) => setQuantitySent(event.target.value)} />
+            <Input label={`Quantidade enviada (destinada/processada disponivel: ${availableQuantity})`} type="number" min="1" max={availableQuantity} step="1" value={quantitySent} onChange={(event) => setQuantitySent(event.target.value)} />
             <Input label="Valor cobrado por peca" type="number" min="0" step="0.01" value={customerUnitPrice} onChange={(event) => setCustomerUnitPrice(event.target.value)} />
             <Input label="Repasse por peca" type="number" min="0" step="0.01" value={outsourcerUnitPrice} onChange={(event) => setOutsourcerUnitPrice(event.target.value)} />
             <div className="rounded-md border border-line bg-[#FCFAF6] p-3 text-sm font-semibold text-muted">
@@ -144,7 +151,7 @@ export function OutsourcingCreateModal({
           {validation ? <p className="text-sm font-semibold text-danger">{validation}</p> : null}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
-            <Button type="button" isLoading={loading} disabled={!quantitySent || !customerUnitPrice || !outsourcerUnitPrice || Boolean(validation)} onClick={submit}>Enviar</Button>
+            <Button type="button" isLoading={loading} disabled={paused || !quantitySent || !customerUnitPrice || !outsourcerUnitPrice || Boolean(validation)} onClick={submit}>Enviar</Button>
           </div>
         </div>
       </div>

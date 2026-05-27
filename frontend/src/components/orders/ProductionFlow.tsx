@@ -29,12 +29,12 @@ export function ProductionFlow({ order }: ProductionFlowProps) {
 
           <div className="mt-4 grid gap-3 md:grid-cols-4">
             <Metric label="Solicitado" value={item.quantity_requested} />
-            <Metric label="Cortado" value={item.quantity_cut} />
+            <Metric label="Destinado para esta OS" value={item.quantity_cut} />
             <Metric label="Estampado" value={item.quantity_printed} />
             <Metric label="Confeccionado" value={item.quantity_sewn} />
           </div>
           <div className="mt-3">
-            <Metric label="Faltam cortar" value={missingCut(item)} />
+            <Metric label="Falta destinar" value={missingCut(item)} />
           </div>
 
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -62,7 +62,7 @@ function Stage({
   const Icon = stage === "cut" ? Scissors : stage === "print" ? Stamp : stage === "sew" ? Shirt : Truck;
   const label =
     stage === "cut"
-      ? "Corte"
+      ? "Destinacao de corte"
       : stage === "print"
         ? "Serigrafia"
         : stage === "sew"

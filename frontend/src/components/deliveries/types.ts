@@ -19,6 +19,7 @@ export type DeliveryHistory = {
 export type DeliveryItem = {
   order_id: number;
   order_item_id: number;
+  production_paused: boolean;
   client: { id: number; name: string };
   product: { id: number; name: string };
   size: { id: number; label: string };

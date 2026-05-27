@@ -29,6 +29,7 @@ class DeliveryHistoryRead(BaseModel):
 class DeliveryItemRead(BaseModel):
     order_id: int
     order_item_id: int
+    production_paused: bool
     client: ClientRead
     product: ProductRead
     size: SizeRead

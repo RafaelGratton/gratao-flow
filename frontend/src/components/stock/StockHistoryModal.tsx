@@ -14,10 +14,13 @@ type Props = {
 };
 
 const movementLabels: Record<StockMovementType, string> = {
-  entry: "Entrada",
+  entry: "Entrada manual",
   exit: "Saida",
   adjustment: "Ajuste",
-  excess_cut: "Excedente corte",
+  excess_cut: "Excedente de corte registrado",
+  cut_entry: "Corte registrado",
+  allocated_to_order: "Destinado para OS",
+  returned_from_order: "Devolvido pela OS",
   loss: "Perda"
 };
 

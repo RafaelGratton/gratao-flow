@@ -24,11 +24,11 @@ type Props = {
 const categoryFilters: Array<{ value: StockCategoryFilter; label: string }> = [
   { value: "all", label: "Todos" },
   { value: "material", label: "Materiais" },
-  { value: "piece", label: "Pecas" }
+  { value: "piece", label: "Pecas cortadas disponiveis" }
 ];
 
 function categoryLabel(category: StockItem["category"]) {
-  return category === "piece" ? "Peca" : "Material";
+  return category === "piece" ? "Peca cortada disponivel" : "Material";
 }
 
 function statusFor(quantityValue: string) {
@@ -120,7 +120,7 @@ export function StockTable({
             <table className="min-w-[1020px] w-full border-separate border-spacing-0 text-left text-sm">
               <thead>
                 <tr className="bg-[#FCFAF6] text-xs font-black uppercase tracking-[0.12em] text-muted">
-                  {["Nome", "Categoria", "Produto/Tamanho", "Cor", "Quantidade", "Status", "Acoes"].map((heading) => (
+                  {["Nome", "Categoria", "Produto/Tamanho", "Cor", "Saldo disponivel", "Status", "Acoes"].map((heading) => (
                     <th key={heading} className="border-b border-line px-4 py-3">
                       {heading}
                     </th>
@@ -152,10 +152,12 @@ export function StockTable({
                             <Plus size={15} />
                             Entrada
                           </Button>
-                          <Button type="button" variant="secondary" className="h-9 px-3" onClick={() => onMovement(item, "exit")}>
-                            <Minus size={15} />
-                            Saida
-                          </Button>
+                          {item.category !== "piece" ? (
+                            <Button type="button" variant="secondary" className="h-9 px-3" onClick={() => onMovement(item, "exit")}>
+                              <Minus size={15} />
+                              Saida
+                            </Button>
+                          ) : null}
                           <Button type="button" variant="secondary" className="h-9 px-3" onClick={() => onMovement(item, "adjust")}>
                             <SlidersHorizontal size={15} />
                             Ajuste
@@ -168,6 +170,11 @@ export function StockTable({
                             <Trash2 size={15} />
                             {item.can_delete ? "Excluir" : "Desativar"}
                           </Button>
+                          {item.category === "piece" ? (
+                            <p className="w-full text-xs font-semibold text-muted">
+                              Retirada para producao: destinar pela OS.
+                            </p>
+                          ) : null}
                         </div>
                       </td>
                     </tr>

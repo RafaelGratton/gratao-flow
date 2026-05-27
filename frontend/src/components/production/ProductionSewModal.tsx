@@ -30,6 +30,15 @@ export function ProductionSewModal({ order, item, open, onClose, onUpdated }: Pr
       : cutAvailable;
     return Math.max(available - item.quantity_sewn, 0);
   }, [item]);
+  const paused = Boolean(order?.production_paused);
+  const validation = useMemo(() => {
+    const amount = Number(quantity);
+    if (paused) return "A producao desta OS esta pausada. Retome a OS antes de registrar confeccao.";
+    if (!quantity) return null;
+    if (!Number.isInteger(amount) || amount <= 0) return "Informe uma quantidade inteira maior que zero.";
+    if (amount > suggestedQuantity) return `Disponivel para confeccao nesta OS: ${suggestedQuantity}.`;
+    return null;
+  }, [paused, quantity, suggestedQuantity]);
 
   useEffect(() => {
     if (open && order && item) {
@@ -42,7 +51,7 @@ export function ProductionSewModal({ order, item, open, onClose, onUpdated }: Pr
   if (!open || !order || !item) return null;
 
   async function submit() {
-    if (!order || !item) return;
+    if (!order || !item || validation) return;
     setLoading(true);
     setError(null);
     try {
@@ -88,6 +97,11 @@ export function ProductionSewModal({ order, item, open, onClose, onUpdated }: Pr
               {error}
             </div>
           ) : null}
+          {paused ? (
+            <div className="rounded-md border border-warning/25 bg-warning/10 p-3 text-sm font-semibold text-warning">
+              Producao pausada. Retome a OS para registrar confeccao.
+            </div>
+          ) : null}
           <Input
             label="Quantidade confeccionada agora"
             type="number"
@@ -98,7 +112,8 @@ export function ProductionSewModal({ order, item, open, onClose, onUpdated }: Pr
             onChange={(event) => setQuantity(event.target.value)}
           />
           <div className="rounded-md border border-line bg-[#FCFAF6] p-3 text-xs font-semibold leading-5 text-muted">
-            Disponivel para confeccao: {suggestedQuantity}. O registro e incremental por item.
+            Disponivel para confeccao nesta OS: {suggestedQuantity}. O limite vem das pecas
+            destinadas ou do DTF ja realizado neste item.
           </div>
           <label className="block space-y-2">
             <span className="text-sm font-semibold text-ink">Observacao operacional</span>
@@ -108,11 +123,12 @@ export function ProductionSewModal({ order, item, open, onClose, onUpdated }: Pr
               onChange={(event) => setNotes(event.target.value)}
             />
           </label>
+          {validation ? <p className="text-sm font-semibold text-danger">{validation}</p> : null}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={onClose}>
               Cancelar
             </Button>
-            <Button type="button" isLoading={loading} disabled={!quantity} onClick={submit}>
+            <Button type="button" isLoading={loading} disabled={paused || !quantity || Boolean(validation)} onClick={submit}>
               Registrar
             </Button>
           </div>

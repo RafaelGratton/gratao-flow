@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
-from app.models.enums import StockMovementType
+from app.models.enums import StockCategory, StockMovementType
 from app.models.stock import StockItem
 from app.schemas.stock import (
     StockAdjustmentCreate,
@@ -29,6 +29,8 @@ def create_item(
     payload: StockItemCreate,
     db: Annotated[Session, Depends(get_db)],
 ) -> StockItem:
+    if payload.category == StockCategory.PIECE and payload.quantity > 0:
+        _require_piece_manual_note(payload.notes)
     item = create_stock_item(db, **payload.model_dump())
     db.commit()
     return _get_stock_item_or_404(db, item.id)
@@ -60,7 +62,9 @@ def register_entry(
     payload: StockMovementCreate,
     db: Annotated[Session, Depends(get_db)],
 ) -> StockItem:
-    item = _get_stock_item_or_404(db, item_id)
+    item = _get_stock_item_or_404(db, item_id, for_update=True)
+    if item.category == StockCategory.PIECE:
+        _require_piece_manual_note(payload.notes)
     register_stock_movement(
         db,
         item,
@@ -78,7 +82,15 @@ def register_exit(
     payload: StockMovementCreate,
     db: Annotated[Session, Depends(get_db)],
 ) -> StockItem:
-    item = _get_stock_item_or_404(db, item_id)
+    item = _get_stock_item_or_404(db, item_id, for_update=True)
+    if item.category == StockCategory.PIECE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Saida manual de pecas cortadas nao e permitida. "
+                "Destine as pecas a partir da OS para preservar a rastreabilidade."
+            ),
+        )
     register_stock_movement(
         db,
         item,
@@ -96,7 +108,9 @@ def register_adjustment(
     payload: StockAdjustmentCreate,
     db: Annotated[Session, Depends(get_db)],
 ) -> StockItem:
-    item = _get_stock_item_or_404(db, item_id)
+    item = _get_stock_item_or_404(db, item_id, for_update=True)
+    if item.category == StockCategory.PIECE:
+        _require_piece_manual_note(payload.notes)
     adjust_stock_quantity(db, item, quantity=payload.quantity, notes=payload.notes)
     db.commit()
     return _get_stock_item_or_404(db, item.id)
@@ -107,7 +121,7 @@ def delete_item(
     item_id: int,
     db: Annotated[Session, Depends(get_db)],
 ) -> StockItem | Response:
-    item = _get_stock_item_or_404(db, item_id)
+    item = _get_stock_item_or_404(db, item_id, for_update=True)
     if item.movements:
         item.is_active = False
         db.commit()
@@ -118,7 +132,7 @@ def delete_item(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-def _get_stock_item_or_404(db: Session, item_id: int) -> StockItem:
+def _get_stock_item_or_404(db: Session, item_id: int, *, for_update: bool = False) -> StockItem:
     query = (
         select(StockItem)
         .where(StockItem.id == item_id)
@@ -128,6 +142,8 @@ def _get_stock_item_or_404(db: Session, item_id: int) -> StockItem:
             selectinload(StockItem.movements),
         )
     )
+    if for_update:
+        query = query.with_for_update()
     item = db.scalar(query)
     if item is None:
         raise HTTPException(
@@ -135,3 +151,11 @@ def _get_stock_item_or_404(db: Session, item_id: int) -> StockItem:
             detail="Stock item not found",
         )
     return item
+
+
+def _require_piece_manual_note(notes: str | None) -> None:
+    if not notes or not notes.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Informe uma observacao para movimentacao manual de pecas cortadas.",
+        )

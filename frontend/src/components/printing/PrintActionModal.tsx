@@ -37,6 +37,7 @@ export function PrintActionModal({ order, item, open, onClose, onUpdated }: Prin
   const quantityCut = item?.quantity_cut ?? order?.quantity_cut ?? 0;
   const quantityPrinted = item?.quantity_printed ?? order?.quantity_printed ?? 0;
   const remaining = Math.max(quantityCut - quantityPrinted, 0);
+  const paused = Boolean(order?.production_paused);
 
   useEffect(() => {
     if (open) {
@@ -55,11 +56,12 @@ export function PrintActionModal({ order, item, open, onClose, onUpdated }: Prin
 
   const validation = useMemo(() => {
     const amount = Number(quantity);
+    if (paused) return "A producao desta OS esta pausada. Retome a OS antes de registrar DTF.";
     if (!quantity) return null;
     if (!Number.isInteger(amount) || amount <= 0) return "Informe uma quantidade inteira maior que zero.";
     if (amount > remaining) return `Restam apenas ${remaining} pecas para DTF nesta OS.`;
     return null;
-  }, [quantity, remaining]);
+  }, [paused, quantity, remaining]);
 
   if (!open || !order) return null;
 
@@ -110,6 +112,11 @@ export function PrintActionModal({ order, item, open, onClose, onUpdated }: Prin
               {error}
             </div>
           ) : null}
+          {paused ? (
+            <div className="rounded-md border border-warning/25 bg-warning/10 p-3 text-sm font-semibold text-warning">
+              Producao pausada. Retome a OS para registrar DTF.
+            </div>
+          ) : null}
           {requiresException ? (
             <div className="rounded-md border border-warning/25 bg-warning/10 p-3 text-sm font-semibold leading-5 text-warning">
               Este produto depende de excecao configurada na OS. Se a excecao nao estiver ativa, o backend vai bloquear o registro.
@@ -117,15 +124,15 @@ export function PrintActionModal({ order, item, open, onClose, onUpdated }: Prin
           ) : null}
           <div className="grid gap-3 rounded-md border border-line bg-[#FCFAF6] p-4 sm:grid-cols-3">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Cortada</p>
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Destinado para OS</p>
               <p className="mt-1 text-xl font-black text-ink">{quantityCut}</p>
             </div>
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">DTF</p>
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">DTF realizado</p>
               <p className="mt-1 text-xl font-black text-ink">{quantityPrinted}</p>
             </div>
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Restante</p>
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Disponivel para DTF</p>
               <p className="mt-1 text-xl font-black text-ink">{remaining}</p>
             </div>
           </div>
@@ -166,7 +173,7 @@ export function PrintActionModal({ order, item, open, onClose, onUpdated }: Prin
             <Button type="button" variant="secondary" onClick={onClose}>
               Cancelar
             </Button>
-            <Button type="button" isLoading={loading} disabled={!quantity || Boolean(validation)} onClick={submit}>
+            <Button type="button" isLoading={loading} disabled={paused || !quantity || Boolean(validation)} onClick={submit}>
               Registrar DTF
             </Button>
           </div>

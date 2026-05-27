@@ -39,6 +39,7 @@ type DeliveryOrderGroup = {
   orderId: number;
   client: DeliveryItem["client"];
   items: DeliveryItem[];
+  productionPaused: boolean;
   requested: number;
   ready: number;
   available: number;
@@ -188,6 +189,7 @@ export function DeliveriesPage() {
           orderId: sortedItems[0].order_id,
           client: sortedItems[0].client,
           items: sortedItems,
+          productionPaused: sortedItems.some((item) => item.production_paused),
           requested: sortedItems.reduce((total, item) => total + item.quantity_requested, 0),
           ready: sortedItems.reduce((total, item) => total + item.quantity_ready_total, 0),
           available: sortedItems.reduce((total, item) => total + item.quantity_available_to_deliver, 0),
@@ -424,6 +426,7 @@ function DeliveryOrderCard({
             <Badge tone={operationalTone[group.operationalStatus]}>
               {operationalLabels[group.operationalStatus]}
             </Badge>
+            {group.productionPaused ? <Badge tone="warning">Producao pausada</Badge> : null}
             {group.blocked ? (
               <Badge tone="warning">
                 <AlertTriangle size={13} />
@@ -515,7 +518,10 @@ function DeliveryRow({
 }) {
   const [showFullHistory, setShowFullHistory] = useState(false);
   const visibleHistory = showFullHistory ? item.history : item.history.slice(-2);
-  const canRegister = item.quantity_available_to_deliver > 0 && item.queue_status !== "delivered";
+  const canRegister =
+    item.quantity_available_to_deliver > 0 &&
+    item.queue_status !== "delivered" &&
+    !item.production_paused;
   const blocked = isBlocked(item, clientWaitingItems);
 
   return (
@@ -534,6 +540,7 @@ function DeliveryRow({
               Gargalo
             </Badge>
           ) : null}
+          {item.production_paused ? <Badge tone="warning">Producao pausada</Badge> : null}
         </div>
         <p className="mt-1 text-sm font-semibold text-muted">{item.client.name}</p>
         <p className="mt-3 text-sm text-muted">
@@ -617,7 +624,7 @@ function DeliveryRow({
 
       <Button type="button" disabled={!canRegister} onClick={onRegister}>
         <Truck size={16} />
-        Registrar entrega
+        {item.production_paused ? "Producao pausada" : "Registrar entrega"}
       </Button>
     </div>
   );
@@ -721,6 +728,10 @@ function DeliveryModal({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!item) return;
+    if (item.production_paused) {
+      onError("A producao desta OS esta pausada. Retome a OS antes de registrar entrega.");
+      return;
+    }
     const parsedQuantity = Number(quantity);
     if (!Number.isInteger(parsedQuantity) || parsedQuantity <= 0) {
       onError("Informe uma quantidade entregue valida.");
@@ -770,6 +781,11 @@ function DeliveryModal({
         </div>
 
         <div className="space-y-4 p-5">
+          {item.production_paused ? (
+            <div className="rounded-md border border-warning/25 bg-warning/10 p-3 text-sm font-semibold text-warning">
+              Producao pausada. O backend bloqueia novas entregas enquanto a OS permanecer pausada.
+            </div>
+          ) : null}
           <div className="grid gap-3 md:grid-cols-5">
             <Metric label="Solicitado" value={item.quantity_requested} />
             <Metric label="Pronto" value={item.quantity_ready_total} />
@@ -860,7 +876,7 @@ function DeliveryModal({
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancelar
           </Button>
-          <Button type="submit" isLoading={saving}>
+          <Button type="submit" isLoading={saving} disabled={item.production_paused}>
             Registrar entrega
           </Button>
         </div>

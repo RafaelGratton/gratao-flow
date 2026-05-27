@@ -37,7 +37,7 @@ const priorityRank = {
 
 function outsourcingFlowLabel(item: OrderItem) {
   return [
-    item.services.some((service) => service.service.type === "corte") ? "Corte" : null,
+    "Destinacao",
     item.services.some((service) => service.service.type === "serigrafia") ? "DTF" : null,
     "Terceirizacao"
   ]
@@ -122,7 +122,7 @@ export function OutsourcingAvailableOrders({ items, loading, onSend }: Props) {
           <EmptyState
             icon={<Send size={20} />}
             title="Nenhum item disponivel"
-            description="Itens terceirizados com corte concluido e serigrafia concluida, quando houver, aparecem aqui para envio."
+            description="Itens terceirizados com pecas cortadas destinadas e serigrafia concluida, quando houver, aparecem aqui para envio."
           />
         ) : (
           <div className="grid gap-3">
@@ -165,6 +165,7 @@ function OutsourcingOrderCard({
               {group.items.length} {itemLabel}
             </Badge>
             <PriorityBadge priority={group.priority} />
+            {group.order.production_paused ? <Badge tone="warning">Producao pausada</Badge> : null}
           </div>
           <p className="mt-1 text-sm font-semibold text-muted">{group.order.client.name}</p>
           <p className="mt-3 truncate text-sm text-muted">
@@ -207,12 +208,14 @@ function OutsourcingItemRow({
   target: AvailableOutsourcingItem;
   onSend: () => void;
 }) {
+  const paused = target.order.production_paused;
   return (
     <div className="grid gap-4 rounded-md border border-line bg-white p-4 lg:grid-cols-[1fr_1fr_auto] lg:items-center">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone="accent">Item</Badge>
           {target.availableQuantity <= 0 ? <Badge tone="warning">Sem saldo</Badge> : null}
+          {paused ? <Badge tone="warning">Producao pausada</Badge> : null}
         </div>
         <p className="mt-2 text-sm text-muted">
           <span className="font-bold text-ink">{target.item.product.name}</span> / {target.item.size.label} / {target.item.color || "sem cor"}
@@ -220,16 +223,16 @@ function OutsourcingItemRow({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <Metric label="Disponivel envio" value={target.availableQuantity} />
+        <Metric label="Disponivel para envio" value={target.availableQuantity} />
         <div className="rounded-md border border-line bg-[#FCFAF6] p-3">
           <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Fluxo</p>
           <p className="mt-1 text-sm font-black text-ink">{outsourcingFlowLabel(target.item)}</p>
         </div>
       </div>
 
-      <Button type="button" disabled={target.availableQuantity <= 0} onClick={onSend}>
+      <Button type="button" disabled={target.availableQuantity <= 0 || paused} onClick={onSend}>
         <Send size={16} />
-        Enviar
+        {paused ? "Producao pausada" : "Enviar"}
       </Button>
     </div>
   );

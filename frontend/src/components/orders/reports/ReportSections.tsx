@@ -94,7 +94,7 @@ export function ReportItemsList({ items }: { items: ReportItem[] }) {
             <p className="font-black text-ink">{item.quantity_requested} pecas</p>
           </div>
           <div className="mt-3 grid gap-2 md:grid-cols-4">
-            <ReportField label="Cortada" value={item.quantity_cut} />
+            <ReportField label="Pecas destinadas" value={item.quantity_cut} />
             <ReportField label="Serigrafada" value={item.quantity_printed} />
             <ReportField label="Costurada" value={item.quantity_sewn} />
             <ReportField label="Entregue" value={item.quantity_delivered} />

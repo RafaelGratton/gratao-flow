@@ -13,7 +13,15 @@ export type CatalogSize = {
   label: string;
 };
 
-export type StockMovementType = "entry" | "exit" | "adjustment" | "excess_cut" | "loss";
+export type StockMovementType =
+  | "entry"
+  | "exit"
+  | "adjustment"
+  | "excess_cut"
+  | "cut_entry"
+  | "allocated_to_order"
+  | "returned_from_order"
+  | "loss";
 
 export type StockMovement = {
   id: number;

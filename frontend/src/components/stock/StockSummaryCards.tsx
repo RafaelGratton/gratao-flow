@@ -8,7 +8,8 @@ type Props = {
 
 export function StockSummaryCards({ items }: Props) {
   const materials = items.filter((item) => item.category === "material").length;
-  const pieces = items.filter((item) => item.category === "piece").length;
+  const pieceItems = items.filter((item) => item.category === "piece");
+  const availablePieces = pieceItems.reduce((total, item) => total + Number(item.quantity), 0);
   const lowOrEmpty = items.filter((item) => Number(item.quantity) <= 0).length;
 
   return (
@@ -26,9 +27,9 @@ export function StockSummaryCards({ items }: Props) {
         icon={<Package size={20} />}
       />
       <StatCard
-        label="Pecas"
-        value={pieces}
-        detail="Produtos por tamanho e cor."
+        label="Pecas cortadas disponiveis"
+        value={availablePieces}
+        detail={`${pieceItems.length} modelos/tamanhos/cor com saldo livre.`}
         icon={<Shirt size={20} />}
       />
       <StatCard

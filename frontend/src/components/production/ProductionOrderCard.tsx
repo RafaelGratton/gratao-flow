@@ -45,6 +45,7 @@ export function ProductionOrderCard({
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-lg font-black text-ink">OS #{order.id}</span>
           <StatusBadge label={productionLabels[order.production_status]} status={productionTone(order.production_status)} />
+          {order.production_paused ? <StatusBadge label="Producao pausada" status="warning" /> : null}
           {stage === "finishing" ? (
             <StatusBadge label={financialLabels[order.financial_status]} status={financialTone(order.financial_status)} />
           ) : null}
@@ -77,7 +78,7 @@ export function ProductionOrderCard({
         {stage === "outsourcing" ? (
           <>
             <Detail label="Quantidade" value={order.quantity_requested} />
-            <Detail label="Base disponível" value={order.production_status === "cut_done" ? order.quantity_cut : order.quantity_printed} />
+            <Detail label="Liberado para envio" value={order.production_status === "cut_done" ? order.quantity_cut : order.quantity_printed} />
           </>
         ) : null}
         {stage === "finishing" ? (
@@ -90,25 +91,25 @@ export function ProductionOrderCard({
 
       <div className="flex flex-wrap gap-2 xl:justify-end">
         {stage === "cut" ? (
-          <Button type="button" onClick={() => onCut?.(order)}>
+          <Button type="button" onClick={() => onCut?.(order)} disabled={order.production_paused}>
             <Scissors size={16} />
             Registrar corte
           </Button>
         ) : null}
         {stage === "printing" ? (
-          <Button type="button" onClick={onGoPrinting}>
+          <Button type="button" onClick={onGoPrinting} disabled={order.production_paused}>
             <ExternalLink size={16} />
             Ir para serigrafia
           </Button>
         ) : null}
         {stage === "sewing" ? (
-          <Button type="button" onClick={() => onSew?.(order)}>
+          <Button type="button" onClick={() => onSew?.(order)} disabled={order.production_paused}>
             <Shirt size={16} />
             Registrar confecção
           </Button>
         ) : null}
         {stage === "outsourcing" ? (
-          <Button type="button" variant="secondary" onClick={onGoOutsourcing}>
+          <Button type="button" variant="secondary" onClick={onGoOutsourcing} disabled={order.production_paused}>
             <ArrowRight size={16} />
             Terceirizar
           </Button>

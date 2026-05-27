@@ -51,6 +51,7 @@ export type OrderSummary = {
   color: string;
   quantity_requested: number;
   production_status: ProductionStatus;
+  production_paused: boolean;
   financial_status: FinancialStatus;
   total_amount: string;
   amount_paid: string;

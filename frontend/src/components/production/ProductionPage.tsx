@@ -81,7 +81,7 @@ type ProductionOrderGroup = {
 
 const stageLabels: Record<StageFilter, string> = {
   all: "Todas",
-  cut: "Corte",
+  cut: "Destinacao",
   print: "DTF",
   sew: "Costura",
   outsourcing: "Terceirizacao",
@@ -91,8 +91,8 @@ const stageLabels: Record<StageFilter, string> = {
 
 const statusOptions: Array<{ value: OperationalStatus | "all"; label: string }> = [
   { value: "all", label: "Todos" },
-  { value: "waiting_cut", label: "Aguardando corte" },
-  { value: "in_cut", label: "Em corte" },
+  { value: "waiting_cut", label: "Aguardando destinacao" },
+  { value: "in_cut", label: "Destinacao parcial" },
   { value: "waiting_print", label: "Aguardando DTF" },
   { value: "in_print", label: "Em DTF" },
   { value: "waiting_sewing", label: "Aguardando costura" },
@@ -537,6 +537,7 @@ function ProductionOrderCard({
               <Badge tone={group.priority === "critical" ? "danger" : group.priority === "urgent" ? "warning" : "neutral"}>
                 {priorityLabel(group.priority)}
               </Badge>
+              {group.order.production_paused ? <Badge tone="warning">Producao pausada</Badge> : null}
             </div>
             <div>
               <p className="text-sm font-black text-ink">{group.order.client.name}</p>
@@ -560,7 +561,7 @@ function ProductionOrderCard({
 
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
           <OrderMetric label="Solicitado" value={group.totals.requested} />
-          <OrderMetric label="Corte" value={group.totals.cut} />
+          <OrderMetric label="Destinado" value={group.totals.cut} />
           <OrderMetric label="DTF" value={group.totals.printed} />
           <OrderMetric label="Costura" value={group.totals.sewn} />
           <OrderMetric label="Pronto entrega" value={group.totals.readyForDelivery} tone="success" />
@@ -661,6 +662,7 @@ function ProductionQueueRow({
 }) {
   const latest = row.traces[0];
   const hasOperationalAttention = row.blockers.length > 0 || row.bottlenecks.length > 0;
+  const paused = row.order.production_paused;
   return (
     <article
       className={cn(
@@ -674,6 +676,7 @@ function ProductionQueueRow({
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone="accent">Item {row.itemNumber}</Badge>
             <StatusPill status={row.status} label={row.statusLabel} />
+            {paused ? <Badge tone="warning">Producao pausada</Badge> : null}
           </div>
           <div>
             <p className="text-sm font-black text-ink">{row.item.product.name}</p>
@@ -692,7 +695,7 @@ function ProductionQueueRow({
               <p className="text-[10px] font-black uppercase tracking-[0.12em] text-accent-dark">Proxima acao</p>
               <p className="mt-1 flex items-center gap-2 text-lg font-black text-accent-dark">
                 <ArrowRight size={18} />
-                {row.nextAction}
+                {paused ? "PRODUCAO PAUSADA" : row.nextAction}
               </p>
             </div>
             <div className="text-xs font-semibold text-muted md:text-right">
@@ -704,7 +707,7 @@ function ProductionQueueRow({
           <div className="grid gap-3 md:grid-cols-2">
             <BalanceGroup title="Ja aconteceu">
               <BalanceLine label="Solicitado" value={row.balances.requested} />
-              <BalanceLine label="Cortado" value={row.balances.cut} />
+              <BalanceLine label="Destinado" value={row.balances.cut} />
               <BalanceLine label="DTF" value={row.balances.printed} />
               <BalanceLine label="Costurado" value={row.balances.sewn} />
               <BalanceLine label="Entregue" value={row.balances.delivered} />
@@ -713,7 +716,7 @@ function ProductionQueueRow({
               <BalanceLine label="Disponivel p/ entrega" value={row.balances.readyForDelivery} tone="success" />
               <BalanceLine label="Ainda em producao" value={row.balances.remainingInProduction} tone="warning" />
               <BalanceLine label="Falta entregar" value={row.balances.remainingToDeliver} />
-              <BalanceLine label="Falta cortar" value={row.balances.missingCut} />
+              <BalanceLine label="Falta destinar" value={row.balances.missingCut} />
               <BalanceLine label="Falta DTF" value={row.balances.missingPrint} />
               <BalanceLine label="Disponivel p/ costura" value={row.balances.availableForSewing} />
               <BalanceLine label="Falta costurar" value={row.balances.missingSewing} />
@@ -781,28 +784,28 @@ function ProductionQueueRow({
             <div className="mt-2 flex flex-wrap gap-1.5">
               <MiniAction icon={<Eye size={14} />} label="OS" onClick={onOpenOrder} />
               {row.balances.readyForDelivery > 0 ? (
-                <MiniAction icon={<Truck size={14} />} label="Entregas" onClick={onDeliver} />
+                <MiniAction icon={<Truck size={14} />} label="Entregas" onClick={onDeliver} disabled={paused} />
               ) : null}
               {row.balances.missingCut > 0 ? (
-                <MiniAction icon={<Scissors size={14} />} label="Corte" onClick={onCut} />
+                <MiniAction icon={<Scissors size={14} />} label="Corte/Dest." onClick={onCut} disabled={paused} />
               ) : null}
               {itemNeedsStage(row.item, "print") && row.balances.missingPrint > 0 ? (
-                <MiniAction icon={<Stamp size={14} />} label="DTF" onClick={onPrint} />
+                <MiniAction icon={<Stamp size={14} />} label="DTF" onClick={onPrint} disabled={paused} />
               ) : null}
               {itemNeedsStage(row.item, "sew") && row.balances.missingSewing > 0 ? (
-                <MiniAction icon={<Shirt size={14} />} label="Confeccao" onClick={onSew} />
+                <MiniAction icon={<Shirt size={14} />} label="Confeccao" onClick={onSew} disabled={paused} />
               ) : null}
               {itemNeedsStage(row.item, "outsourcing") && row.balances.readyForOutsourcing > 0 ? (
-                <MiniAction icon={<PackageCheck size={14} />} label="Terc." onClick={onOutsource} />
+                <MiniAction icon={<PackageCheck size={14} />} label="Terc." onClick={onOutsource} disabled={paused} />
               ) : null}
             </div>
           </div>
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.12em] text-muted">Auditoria</p>
             <div className="mt-2 flex flex-wrap gap-1.5">
-              <MiniAction icon={<AlertTriangle size={14} />} label="Perda" onClick={() => onAudit("loss")} />
-              <MiniAction icon={<RotateCcw size={14} />} label="Retrab." onClick={() => onAudit("rework")} />
-              <MiniAction icon={<Wrench size={14} />} label="Ajuste" onClick={() => onAudit("adjustment")} />
+              <MiniAction icon={<AlertTriangle size={14} />} label="Perda" onClick={() => onAudit("loss")} disabled={paused} />
+              <MiniAction icon={<RotateCcw size={14} />} label="Retrab." onClick={() => onAudit("rework")} disabled={paused} />
+              <MiniAction icon={<Wrench size={14} />} label="Ajuste" onClick={() => onAudit("adjustment")} disabled={paused} />
             </div>
           </div>
         </section>

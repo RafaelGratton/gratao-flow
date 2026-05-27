@@ -47,7 +47,7 @@ def create_stock_item(
                 quantity=item.quantity,
                 previous_quantity=Decimal("0.00"),
                 new_quantity=item.quantity,
-                notes="Initial stock quantity",
+                notes=notes or "Initial stock quantity",
             )
         )
     return item
@@ -115,15 +115,30 @@ def adjust_stock_quantity(
     return movement
 
 
-def get_or_create_piece_stock_item_for_order_item(db: Session, order_item) -> StockItem:
-    item = db.scalar(
-        select(StockItem).where(
-            StockItem.category == StockCategory.PIECE,
-            StockItem.product_id == order_item.product_id,
-            StockItem.size_id == order_item.size_id,
-            StockItem.color == order_item.color,
+def get_piece_stock_items_for_order_item(db: Session, order_item) -> list[StockItem]:
+    return list(
+        db.scalars(
+            select(StockItem)
+            .where(
+                StockItem.category == StockCategory.PIECE,
+                StockItem.product_id == order_item.product_id,
+                StockItem.size_id == order_item.size_id,
+                StockItem.color == order_item.color,
+                StockItem.is_active.is_(True),
+            )
+            .order_by(StockItem.id)
+            .with_for_update()
         )
     )
+
+
+def get_piece_stock_item_for_order_item(db: Session, order_item) -> StockItem | None:
+    items = get_piece_stock_items_for_order_item(db, order_item)
+    return items[0] if items else None
+
+
+def get_or_create_piece_stock_item_for_order_item(db: Session, order_item) -> StockItem:
+    item = get_piece_stock_item_for_order_item(db, order_item)
     if item is not None:
         return item
 
@@ -168,9 +183,18 @@ def _calculate_new_quantity(
     movement_type: StockMovementType,
     quantity: Decimal,
 ) -> Decimal:
-    if movement_type in {StockMovementType.ENTRY, StockMovementType.EXCESS_CUT}:
+    if movement_type in {
+        StockMovementType.ENTRY,
+        StockMovementType.EXCESS_CUT,
+        StockMovementType.CUT_ENTRY,
+        StockMovementType.RETURNED_FROM_ORDER,
+    }:
         return _stock_quantity(previous_quantity + quantity)
-    if movement_type in {StockMovementType.EXIT, StockMovementType.LOSS}:
+    if movement_type in {
+        StockMovementType.EXIT,
+        StockMovementType.LOSS,
+        StockMovementType.ALLOCATED_TO_ORDER,
+    }:
         return _stock_quantity(previous_quantity - quantity)
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,

@@ -219,7 +219,7 @@ export function PrintingQueue() {
       <div className="grid gap-4 md:grid-cols-4">
         {[
           { label: "OS na fila", value: summary.orders, icon: Layers3 },
-          { label: "Aguardando corte", value: summary.waiting_cut, icon: Clock3 },
+          { label: "Aguardando destinacao", value: summary.waiting_cut, icon: Clock3 },
           { label: "Prontas para DTF", value: summary.ready, icon: Stamp },
           { label: "Em andamento", value: summary.active, icon: PlayCircle }
         ].map((item) => (
@@ -304,18 +304,19 @@ function PrintOrderCard({
               {group.pendingItems} {pendingLabel}
             </Badge>
             <PriorityBadge priority={group.priority} />
+            {group.order.production_paused ? <Badge tone="warning">Producao pausada</Badge> : null}
           </div>
           <p className="mt-1 text-sm font-semibold text-muted">{group.order.client.name}</p>
         </div>
 
         <div className="grid grid-cols-3 gap-2 rounded-md border border-line bg-[#FCFAF6] p-3">
-          <Metric label="Bloq. corte" value={group.waitingCutItems} tone={group.waitingCutItems > 0 ? "warning" : "neutral"} />
+          <Metric label="Bloq. destinacao" value={group.waitingCutItems} tone={group.waitingCutItems > 0 ? "warning" : "neutral"} />
           <Metric label="Prontos DTF" value={group.readyItems} tone={group.readyItems > 0 ? "success" : "neutral"} />
           <Metric label="Andamento" value={group.activeItems} tone={group.activeItems > 0 ? "accent" : "neutral"} />
         </div>
 
         <div className="grid grid-cols-2 gap-3 rounded-md border border-line bg-white p-3">
-          <Metric label="Cortado disp." value={group.cutAvailable} />
+          <Metric label="Liberado para DTF" value={group.cutAvailable} />
           <Metric label="DTF feito" value={group.printed} />
         </div>
 
@@ -346,6 +347,7 @@ function PrintItemRow({ row, onRegister }: { row: PrintRow; onRegister: () => vo
   const stage = printStage(row.item);
   const available = availableForPrint(row.item);
   const missingCut = Math.max(row.item.quantity_requested - row.item.quantity_cut, 0);
+  const paused = row.order.production_paused;
 
   return (
     <div className="grid gap-4 rounded-md border border-line bg-white p-4 xl:grid-cols-[1.2fr_1fr_1fr_auto] xl:items-center">
@@ -354,6 +356,7 @@ function PrintItemRow({ row, onRegister }: { row: PrintRow; onRegister: () => vo
           <Badge tone="accent">Item {row.itemNumber}</Badge>
           <StageBadge stage={stage} />
           <PriorityBadge priority={row.item.operational_priority} />
+          {paused ? <Badge tone="warning">Producao pausada</Badge> : null}
         </div>
         <p className="mt-2 text-sm text-muted">
           <span className="font-bold text-ink">{row.item.product.name}</span> / {row.item.size.label} / {row.item.color || "sem cor"}
@@ -361,30 +364,30 @@ function PrintItemRow({ row, onRegister }: { row: PrintRow; onRegister: () => vo
       </div>
 
       <div className="grid grid-cols-3 gap-3 rounded-md border border-line bg-[#FCFAF6] p-3">
-        <Metric label="Cortada" value={row.item.quantity_cut} />
-        <Metric label="DTF" value={row.item.quantity_printed} />
-        <Metric label="Disponivel DTF" value={available} tone={available > 0 ? "success" : "warning"} />
+        <Metric label="Destinado para OS" value={row.item.quantity_cut} />
+        <Metric label="DTF realizado" value={row.item.quantity_printed} />
+        <Metric label="Disponivel para DTF" value={available} tone={available > 0 ? "success" : "warning"} />
       </div>
 
       <div className="space-y-2">
         <p className="text-sm font-semibold text-ink">{printServiceLabel(row.item)}</p>
         {missingCut > 0 ? (
-          <p className="text-xs font-semibold text-warning">Falta cortar {missingCut}</p>
+          <p className="text-xs font-semibold text-warning">Falta destinar {missingCut}</p>
         ) : null}
         <p className="text-xs font-bold uppercase tracking-[0.12em] text-accent-dark">
           {itemFlowLabel(row.item)}
         </p>
       </div>
 
-      <Button type="button" disabled={available <= 0} onClick={onRegister}>
-        Registrar DTF
+      <Button type="button" disabled={available <= 0 || paused} onClick={onRegister}>
+        {paused ? "Producao pausada" : "Registrar DTF"}
       </Button>
     </div>
   );
 }
 
 function StageBadge({ stage }: { stage: QueueStage }) {
-  if (stage === "waiting_cut") return <Badge tone="warning">Bloqueado por corte</Badge>;
+  if (stage === "waiting_cut") return <Badge tone="warning">Aguardando pecas destinadas</Badge>;
   if (stage === "active") return <Badge tone="accent">Em andamento</Badge>;
   if (stage === "ready") return <Badge tone="success">Pronto para DTF</Badge>;
   return <Badge tone="success">Concluido</Badge>;

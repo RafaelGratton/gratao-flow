@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
 from app.models.enums import (
     DeliveryStatus,
@@ -225,6 +225,24 @@ class ItemQuantityRegister(BaseModel):
     notes: str | None = None
 
 
+class CutPieceAllocation(BaseModel):
+    quantity: int = Field(gt=0)
+    notes: str | None = None
+
+
+class CutPieceReturn(BaseModel):
+    quantity: int = Field(gt=0)
+    notes: str = Field(min_length=1)
+
+    @field_validator("notes")
+    @classmethod
+    def validate_notes(cls, value: str) -> str:
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise ValueError("notes is required to return allocated cut pieces")
+        return cleaned
+
+
 class PrintRegister(BaseModel):
     quantity: int = Field(gt=0)
     print_type: PrintType
@@ -283,6 +301,7 @@ class OrderSummary(BaseModel):
     color: str
     quantity_requested: int
     production_status: ProductionStatus
+    production_paused: bool
     financial_status: FinancialStatus
     total_amount: MoneyDecimal
     amount_paid: MoneyDecimal
