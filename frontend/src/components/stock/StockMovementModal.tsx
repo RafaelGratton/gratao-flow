@@ -39,7 +39,10 @@ export function StockMovementModal({ item, mode, onClose, onSaved }: Props) {
 
   const helper = useMemo(() => {
     if (!item || !mode) return "";
-    return `Saldo atual: ${Number(item.quantity).toLocaleString("pt-BR")}`;
+    const balance = `Saldo atual: ${Number(item.quantity).toLocaleString("pt-BR")}`;
+    return item.category === "piece"
+      ? `${balance}. Pecas cortadas aqui sao saldo livre disponivel.`
+      : balance;
   }, [item, mode]);
 
   if (!open || !item || !mode) return null;
@@ -60,6 +63,10 @@ export function StockMovementModal({ item, mode, onClose, onSaved }: Props) {
     const numericQuantity = Number(quantity);
     if (Number.isNaN(numericQuantity) || numericQuantity < 0 || (selectedMode !== "adjust" && numericQuantity <= 0)) {
       setError(selectedMode === "adjust" ? "Informe uma quantidade final maior ou igual a zero." : "Informe uma quantidade maior que zero.");
+      return;
+    }
+    if (selectedItem.category === "piece" && !notes.trim()) {
+      setError("Informe uma observacao para movimentacao manual de pecas cortadas.");
       return;
     }
 
@@ -118,7 +125,9 @@ export function StockMovementModal({ item, mode, onClose, onSaved }: Props) {
             onChange={(event) => setQuantity(event.target.value)}
           />
           <label className="block space-y-2">
-            <span className="text-sm font-semibold text-ink">Observacoes</span>
+            <span className="text-sm font-semibold text-ink">
+              Observacoes{item.category === "piece" ? " *" : ""}
+            </span>
             <textarea
               className="min-h-24 w-full rounded-md border border-line bg-white px-3 py-3 text-sm text-ink shadow-insetline transition placeholder:text-muted/70 focus:focus-ring"
               value={notes}

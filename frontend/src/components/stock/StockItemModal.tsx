@@ -63,6 +63,9 @@ export function StockItemModal({ open, products, sizes, onClose, onCreated }: Pr
     if (form.category === "piece" && (!form.product_id || !form.size_id)) {
       return "Para peca, informe produto e tamanho.";
     }
+    if (form.category === "piece" && Number(form.quantity) > 0 && !form.notes.trim()) {
+      return "Informe uma observacao para cadastrar saldo fisico pre-existente.";
+    }
     return null;
   }
 
@@ -131,7 +134,7 @@ export function StockItemModal({ open, products, sizes, onClose, onCreated }: Pr
                 onChange={(event) => update("category", event.target.value as StockCategory)}
               >
                 <option value="material">Material</option>
-                <option value="piece">Peca</option>
+                <option value="piece">Peca cortada disponivel</option>
               </select>
             </label>
           </div>
@@ -171,11 +174,13 @@ export function StockItemModal({ open, products, sizes, onClose, onCreated }: Pr
 
           <div className="grid gap-4 md:grid-cols-2">
             <Input label="Cor" value={form.color} onChange={(event) => update("color", event.target.value)} />
-            <Input label="Quantidade inicial" type="number" min="0" step="0.01" value={form.quantity} onChange={(event) => update("quantity", event.target.value)} />
+            <Input label={form.category === "piece" ? "Saldo livre inicial" : "Quantidade inicial"} type="number" min="0" step="0.01" value={form.quantity} onChange={(event) => update("quantity", event.target.value)} />
           </div>
 
           <label className="block space-y-2">
-            <span className="text-sm font-semibold text-ink">Observacoes</span>
+            <span className="text-sm font-semibold text-ink">
+              Observacoes{form.category === "piece" && Number(form.quantity) > 0 ? " *" : ""}
+            </span>
             <textarea
               className="min-h-24 w-full rounded-md border border-line bg-white px-3 py-3 text-sm text-ink shadow-insetline transition placeholder:text-muted/70 focus:focus-ring"
               value={form.notes}

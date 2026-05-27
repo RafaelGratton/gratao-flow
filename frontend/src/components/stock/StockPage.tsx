@@ -94,7 +94,9 @@ export function StockPage() {
       <div>
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent-dark">Gratão Flow</p>
         <h1 className="mt-1 text-3xl font-black text-ink">Estoque</h1>
-        <p className="mt-2 text-sm leading-6 text-muted">Controle auditavel de materiais e pecas</p>
+        <p className="mt-2 text-sm leading-6 text-muted">
+          Controle auditavel de materiais e pecas cortadas disponiveis
+        </p>
       </div>
 
       {feedback ? (

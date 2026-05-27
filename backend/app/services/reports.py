@@ -148,8 +148,8 @@ def generate_internal_order_report_pdf(report: InternalOrderReport) -> bytes:
         f"OS: {report.order_id}",
         f"Cliente: {report.client.name} | Telefone: {report.client.phone}",
         (
-            f"Quantidades: solicitada {report.quantity_requested}, corte {report.quantity_cut}, "
-            f"impressa {report.quantity_printed}, costurada {report.quantity_sewn}, extra {report.quantity_extra}"
+            f"Quantidades: solicitada {report.quantity_requested}, destinada {report.quantity_cut}, "
+            f"impressa {report.quantity_printed}, costurada {report.quantity_sewn}, excedente historico {report.quantity_extra}"
         ),
         f"Status producao: {report.production_status.value}",
         f"Status financeiro: {report.financial_status.value}",
@@ -183,7 +183,7 @@ def generate_internal_order_report_pdf(report: InternalOrderReport) -> bytes:
         "Eventos produtivos",
         *[
             (
-                f"- {event.event_type.value} | item {event.order_item_id or '-'} | "
+                f"- {_production_event_label(event.event_type.value)} | item {event.order_item_id or '-'} | "
                 f"qtd {event.quantity} | {date_text(event.created_at)}"
                 f"{' | ' + event.notes if event.notes else ''}"
             )
@@ -249,6 +249,21 @@ def money(value: object) -> str:
 
 def date_text(value: object) -> str:
     return value.strftime("%Y-%m-%d")
+
+
+def _production_event_label(event_type: str) -> str:
+    labels = {
+        "cut_registered": "Corte registrado no estoque",
+        "cut_pieces_allocated": "Pecas destinadas para OS",
+        "cut_pieces_returned": "Pecas devolvidas ao estoque",
+        "production_paused": "Producao pausada",
+        "production_resumed": "Producao retomada",
+        "print_registered": "DTF/serigrafia registrada",
+        "sewing_registered": "Confeccao registrada",
+        "outsourcing_sent": "Terceirizacao enviada",
+        "outsourcing_returned": "Retorno da terceirizacao",
+    }
+    return labels.get(event_type, event_type)
 
 
 def _build_pdf(rows: Iterable[str]) -> bytes:

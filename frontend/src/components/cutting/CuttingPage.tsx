@@ -3,11 +3,14 @@
 import { ChevronDown, ChevronRight, Clock3, RefreshCw, Scissors } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OrderDetails, OrderItem, OrderSummary } from "@/components/orders/types";
+import type { StockItem } from "@/components/stock/types";
 import {
   buildOperationalQueueItem,
+  itemHasService,
   priorityLabel,
   type OperationalQueueItem
 } from "@/components/production/helpers";
+import { AllocateCutPiecesModal } from "@/components/cutting/AllocateCutPiecesModal";
 import { ProductionCutModal } from "@/components/production/ProductionCutModal";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -20,11 +23,16 @@ import { api } from "@/lib/api";
 type CutTarget = {
   order: OrderDetails;
   item: OrderItem;
+  availableStock: number;
+};
+
+type CuttingQueueItem = OperationalQueueItem & {
+  availableStock: number;
 };
 
 type CuttingOrderGroup = {
   order: OrderDetails;
-  rows: OperationalQueueItem[];
+  rows: CuttingQueueItem[];
   requested: number;
   cut: number;
   missingCut: number;
@@ -41,17 +49,22 @@ const priorityRank = {
 
 export function CuttingPage() {
   const [orders, setOrders] = useState<OrderDetails[]>([]);
+  const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [selected, setSelected] = useState<CutTarget | null>(null);
+  const [selectedCut, setSelectedCut] = useState<CutTarget | null>(null);
+  const [selectedAllocation, setSelectedAllocation] = useState<CutTarget | null>(null);
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(() => new Set());
 
   const loadOrders = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const summaries = await api.get<OrderSummary[]>("/orders");
+      const [summaries, pieces] = await Promise.all([
+        api.get<OrderSummary[]>("/orders"),
+        api.get<StockItem[]>("/stock/items")
+      ]);
       const openSummaries = summaries.filter(
         (order) => !["cancelled", "delivered"].includes(order.production_status)
       );
@@ -59,6 +72,7 @@ export function CuttingPage() {
         openSummaries.map((order) => api.get<OrderDetails>(`/orders/${order.id}`))
       );
       setOrders(details);
+      setStockItems(pieces.filter((item) => item.category === "piece"));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Nao foi possivel carregar a fila de corte.");
     } finally {
@@ -74,7 +88,10 @@ export function CuttingPage() {
     () =>
       orders
         .flatMap((order) =>
-          order.items.map((item, index) => buildOperationalQueueItem(order, item, index + 1))
+          order.items.map((item, index) => ({
+            ...buildOperationalQueueItem(order, item, index + 1),
+            availableStock: compatibleStockBalance(stockItems, item)
+          }))
         )
         .filter((row) => row.balances.missingCut > 0)
         .sort((a, b) => {
@@ -82,11 +99,11 @@ export function CuttingPage() {
           if (priorityDiff !== 0) return priorityDiff;
           return b.ageDays - a.ageDays || a.order.id - b.order.id;
         }),
-    [orders]
+    [orders, stockItems]
   );
 
   const orderGroups = useMemo<CuttingOrderGroup[]>(() => {
-    const grouped = new Map<number, OperationalQueueItem[]>();
+    const grouped = new Map<number, CuttingQueueItem[]>();
 
     itemRows.forEach((row) => {
       const groupRows = grouped.get(row.order.id) ?? [];
@@ -130,9 +147,16 @@ export function CuttingPage() {
       });
   }, [itemRows]);
 
-  function handleUpdated(updated: OrderDetails) {
+  function handleCutUpdated(updated: OrderDetails) {
     setOrders((current) => current.map((order) => (order.id === updated.id ? updated : order)));
-    setSuccess(`Corte registrado na OS #${updated.id}.`);
+    setSuccess("Corte registrado. As pecas foram adicionadas ao estoque.");
+    void loadOrders();
+  }
+
+  function handleAllocationUpdated(updated: OrderDetails) {
+    setOrders((current) => current.map((order) => (order.id === updated.id ? updated : order)));
+    setSuccess("Pecas destinadas para a OS com sucesso.");
+    void loadOrders();
   }
 
   function toggleOrder(orderId: number) {
@@ -152,7 +176,7 @@ export function CuttingPage() {
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent-dark">
-            Fila e registro de corte por item
+            Registro de corte para estoque por item
           </p>
           <h1 className="mt-1 text-3xl font-black text-ink">Corte</h1>
         </div>
@@ -175,8 +199,8 @@ export function CuttingPage() {
 
       <div className="grid gap-4 md:grid-cols-4">
         <SummaryTile label="OS na fila" value={orderGroups.length} />
-        <SummaryTile label="Itens a cortar" value={itemRows.length} />
-        <SummaryTile label="Pecas restantes" value={orderGroups.reduce((total, group) => total + group.missingCut, 0)} />
+        <SummaryTile label="Itens sem destinacao completa" value={itemRows.length} />
+        <SummaryTile label="Falta destinar" value={orderGroups.reduce((total, group) => total + group.missingCut, 0)} />
         <SummaryTile
           label="Criticos"
           value={orderGroups.filter((group) => group.priority === "critical").length}
@@ -187,7 +211,7 @@ export function CuttingPage() {
       <section className="space-y-3">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent-dark">Operacao</p>
-          <h2 className="mt-1 text-xl font-black text-ink">OS com saldo a cortar</h2>
+          <h2 className="mt-1 text-xl font-black text-ink">OS com saldo a destinar</h2>
         </div>
 
         {loading ? (
@@ -199,8 +223,8 @@ export function CuttingPage() {
         ) : orderGroups.length === 0 ? (
           <EmptyState
             icon={<Scissors size={20} />}
-            title="Nenhuma OS aguardando corte"
-            description="OS aparecem aqui quando possuem pelo menos um item com saldo restante a cortar."
+            title="Nenhuma OS aguardando destinacao"
+            description="OS aparecem aqui quando possuem pelo menos um item com saldo restante a destinar."
           />
         ) : (
           <div className="space-y-3">
@@ -210,7 +234,12 @@ export function CuttingPage() {
                 group={group}
                 expanded={expandedOrders.has(group.order.id)}
                 onToggle={() => toggleOrder(group.order.id)}
-                onRegister={(row) => setSelected({ order: row.order, item: row.item })}
+                onRegister={(row) =>
+                  setSelectedCut({ order: row.order, item: row.item, availableStock: row.availableStock })
+                }
+                onAllocate={(row) =>
+                  setSelectedAllocation({ order: row.order, item: row.item, availableStock: row.availableStock })
+                }
               />
             ))}
           </div>
@@ -218,11 +247,20 @@ export function CuttingPage() {
       </section>
 
       <ProductionCutModal
-        open={Boolean(selected)}
-        order={selected?.order ?? null}
-        item={selected?.item ?? null}
-        onClose={() => setSelected(null)}
-        onUpdated={handleUpdated}
+        open={Boolean(selectedCut)}
+        order={selectedCut?.order ?? null}
+        item={selectedCut?.item ?? null}
+        availableStock={selectedCut?.availableStock ?? null}
+        onClose={() => setSelectedCut(null)}
+        onUpdated={handleCutUpdated}
+      />
+      <AllocateCutPiecesModal
+        open={Boolean(selectedAllocation)}
+        order={selectedAllocation?.order ?? null}
+        item={selectedAllocation?.item ?? null}
+        availableStock={selectedAllocation?.availableStock ?? 0}
+        onClose={() => setSelectedAllocation(null)}
+        onUpdated={handleAllocationUpdated}
       />
     </div>
   );
@@ -232,12 +270,14 @@ function CuttingOrderCard({
   group,
   expanded,
   onToggle,
-  onRegister
+  onRegister,
+  onAllocate
 }: {
   group: CuttingOrderGroup;
   expanded: boolean;
   onToggle: () => void;
-  onRegister: (row: OperationalQueueItem) => void;
+  onRegister: (row: CuttingQueueItem) => void;
+  onAllocate: (row: CuttingQueueItem) => void;
 }) {
   const latest = group.latestTrace;
   const itemCount = group.rows.length;
@@ -252,14 +292,15 @@ function CuttingOrderCard({
               {itemCount} {itemCount === 1 ? "item pendente" : "itens pendentes"}
             </Badge>
             <PriorityBadge priority={group.priority} />
+            {group.order.production_paused ? <Badge tone="warning">Producao pausada</Badge> : null}
           </div>
           <p className="mt-1 text-sm font-semibold text-muted">{group.order.client.name}</p>
         </div>
 
         <div className="grid grid-cols-3 gap-3 rounded-md border border-line bg-[#FCFAF6] p-3">
           <Metric label="Solicitado" value={group.requested} />
-          <Metric label="Ja cortado" value={group.cut} />
-          <Metric label="Falta cortar" value={group.missingCut} tone="warning" />
+          <Metric label="Destinado para a OS" value={group.cut} />
+          <Metric label="Falta destinar" value={group.missingCut} tone="warning" />
         </div>
 
         <LatestTrace trace={latest} />
@@ -278,6 +319,7 @@ function CuttingOrderCard({
                 key={`${row.order.id}-${row.item.id}`}
                 row={row}
                 onRegister={() => onRegister(row)}
+                onAllocate={() => onAllocate(row)}
               />
             ))}
           </div>
@@ -287,14 +329,27 @@ function CuttingOrderCard({
   );
 }
 
-function CuttingItemRow({ row, onRegister }: { row: OperationalQueueItem; onRegister: () => void }) {
+function CuttingItemRow({
+  row,
+  onRegister,
+  onAllocate
+}: {
+  row: CuttingQueueItem;
+  onRegister: () => void;
+  onAllocate: () => void;
+}) {
+  const paused = row.order.production_paused;
+  const canAllocate = !paused && row.availableStock > 0 && row.balances.missingCut > 0;
+  const canRegisterCut = itemHasService(row.item, "corte");
+
   return (
-    <div className="grid gap-4 rounded-md border border-line bg-white p-4 xl:grid-cols-[1.2fr_1fr_auto] xl:items-center">
+    <div className="grid gap-4 rounded-md border border-line bg-white p-4 xl:grid-cols-[1.1fr_1.25fr_auto] xl:items-center">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone="accent">Item {row.itemNumber}</Badge>
           <PriorityBadge priority={row.item.operational_priority} />
           <Badge tone="warning">{row.statusLabel}</Badge>
+          {paused ? <Badge tone="warning">Producao pausada</Badge> : null}
         </div>
         <p className="mt-2 text-sm text-muted">
           <span className="font-bold text-ink">{row.item.product.name}</span> / {row.item.color || "sem cor"} / Tam. {row.item.size.label}
@@ -302,16 +357,32 @@ function CuttingItemRow({ row, onRegister }: { row: OperationalQueueItem; onRegi
         {row.item.notes ? <p className="mt-2 text-xs text-muted">{row.item.notes}</p> : null}
       </div>
 
-      <div className="grid grid-cols-3 gap-3 rounded-md border border-line bg-[#FCFAF6] p-3">
+      <div className="grid grid-cols-2 gap-3 rounded-md border border-line bg-[#FCFAF6] p-3 md:grid-cols-4">
         <Metric label="Solicitado" value={row.balances.requested} />
-        <Metric label="Ja cortado" value={row.balances.cut} />
-        <Metric label="Falta cortar" value={row.balances.missingCut} tone="warning" />
+        <Metric label="Destinado para a OS" value={row.balances.cut} />
+        <Metric label="Falta destinar" value={row.balances.missingCut} tone="warning" />
+        <Metric
+          label={row.availableStock > 0 ? "Disponivel em estoque" : "Sem saldo disponivel"}
+          value={row.availableStock}
+        />
       </div>
 
-      <Button type="button" onClick={onRegister}>
-        <Scissors size={16} />
-        Registrar corte
-      </Button>
+      <div className="flex flex-col gap-2">
+        {canRegisterCut ? (
+          <Button type="button" onClick={onRegister} disabled={paused}>
+            <Scissors size={16} />
+            Registrar corte para estoque
+          </Button>
+        ) : null}
+        <Button
+          type="button"
+          variant={canAllocate ? "secondary" : "ghost"}
+          onClick={onAllocate}
+          disabled={!canAllocate}
+        >
+          Destinar pecas
+        </Button>
+      </div>
     </div>
   );
 }
@@ -366,4 +437,15 @@ function Metric({ label, value, tone = "neutral" }: { label: string; value: numb
 function PriorityBadge({ priority }: { priority: OperationalQueueItem["item"]["operational_priority"] }) {
   const tone = priority === "critical" ? "danger" : priority === "urgent" ? "warning" : "neutral";
   return <Badge tone={tone}>{priorityLabel(priority)}</Badge>;
+}
+
+function compatibleStockBalance(items: StockItem[], item: OrderItem) {
+  return items
+    .filter(
+      (stockItem) =>
+        stockItem.product_id === item.product_id &&
+        stockItem.size_id === item.size_id &&
+        stockItem.color === item.color
+    )
+    .reduce((total, stockItem) => total + Number(stockItem.quantity), 0);
 }

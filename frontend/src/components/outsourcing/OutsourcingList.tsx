@@ -58,6 +58,7 @@ export function OutsourcingList({ items, loading, onReturn, onPaid, onError }: P
               const item = order.items.find((orderItem) => orderItem.id === outsourcing.order_item_id);
               const canReturn =
                 outsourcing.return_expected &&
+                !order.production_paused &&
                 !["returned", "cancelled"].includes(outsourcing.status);
               return (
                 <div key={`${order.id}-${outsourcing.id}`} className="rounded-lg border border-line bg-white p-4 shadow-insetline">
@@ -71,6 +72,7 @@ export function OutsourcingList({ items, loading, onReturn, onPaid, onError }: P
                         <Badge tone={outsourcing.payout_status === "paid" ? "success" : "warning"}>
                           Repasse {outsourcing.payout_status === "paid" ? "pago" : "pendente"}
                         </Badge>
+                        {order.production_paused ? <Badge tone="warning">Producao pausada</Badge> : null}
                       </div>
                       <p className="mt-1 text-sm font-semibold text-muted">
                         {order.client.name} / {outsourcing.outsourcer?.name ?? "Sem terceirizado definido"}

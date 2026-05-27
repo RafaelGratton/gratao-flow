@@ -59,6 +59,10 @@ class OperationalPriority(StrEnum):
 
 class ProductionEventType(StrEnum):
     CUT_REGISTERED = "cut_registered"
+    CUT_PIECES_ALLOCATED = "cut_pieces_allocated"
+    CUT_PIECES_RETURNED = "cut_pieces_returned"
+    PRODUCTION_PAUSED = "production_paused"
+    PRODUCTION_RESUMED = "production_resumed"
     PRINT_REGISTERED = "print_registered"
     SEWING_REGISTERED = "sewing_registered"
     OUTSOURCING_SENT = "outsourcing_sent"
@@ -123,4 +127,7 @@ class StockMovementType(StrEnum):
     EXIT = "exit"
     ADJUSTMENT = "adjustment"
     EXCESS_CUT = "excess_cut"
+    CUT_ENTRY = "cut_entry"
+    ALLOCATED_TO_ORDER = "allocated_to_order"
+    RETURNED_FROM_ORDER = "returned_from_order"
     LOSS = "loss"

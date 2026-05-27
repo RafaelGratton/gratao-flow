@@ -1,11 +1,12 @@
 "use client";
 
-import { ArrowLeft, CreditCard, Pencil, ReceiptText, XCircle } from "lucide-react";
+import { ArrowLeft, CreditCard, Pause, Pencil, Play, ReceiptText, Undo2, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PaymentModal } from "@/components/orders/PaymentModal";
 import { OrderEditModal } from "@/components/orders/OrderEditModal";
+import { ReturnCutPiecesModal } from "@/components/cutting/ReturnCutPiecesModal";
 import { ProductionFlow } from "@/components/orders/ProductionFlow";
 import { OrderReportsCard } from "@/components/orders/reports/OrderReportsCard";
 import {
@@ -15,7 +16,7 @@ import {
   productionTone
 } from "@/components/orders/status";
 import { itemFlowLabel } from "@/components/production/helpers";
-import type { OrderDetails as OrderDetailsType } from "@/components/orders/types";
+import type { OrderDetails as OrderDetailsType, OrderItem } from "@/components/orders/types";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -36,6 +37,9 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
   const [editOpen, setEditOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [productionControlLoading, setProductionControlLoading] = useState(false);
+  const [returnTarget, setReturnTarget] = useState<OrderItem | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -112,6 +116,41 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
     }
   }
 
+  async function handleProductionControl() {
+    if (!order) return;
+    const pausing = !order.production_paused;
+    const confirmed = window.confirm(
+      pausing
+        ? 'Pausar a producao impede novos avancos nesta OS. Pecas ja destinadas nao retornam automaticamente ao estoque. Use "Devolver ao estoque" caso precise redireciona-las.'
+        : "Deseja retomar a producao desta OS?"
+    );
+    if (!confirmed) return;
+
+    setProductionControlLoading(true);
+    setActionError(null);
+    setSuccess(null);
+    try {
+      const updated = await api.post<OrderDetailsType>(
+        `/orders/${order.id}/${pausing ? "pause-production" : "resume-production"}`
+      );
+      setOrder(updated);
+      setSuccess(pausing ? "Producao pausada." : "Producao retomada.");
+    } catch (requestError) {
+      setActionError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Nao foi possivel atualizar a producao da OS."
+      );
+    } finally {
+      setProductionControlLoading(false);
+    }
+  }
+
+  function handlePiecesReturned(updated: OrderDetailsType) {
+    setOrder(updated);
+    setSuccess("Pecas devolvidas ao estoque com sucesso.");
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-4 rounded-lg border border-line bg-white/90 p-5 shadow-soft md:flex-row md:items-center md:justify-between">
@@ -142,6 +181,19 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
             label={financialLabels[order.financial_status]}
             status={financialTone(order.financial_status)}
           />
+          {order.production_paused ? (
+            <StatusBadge label="Producao pausada" status="warning" />
+          ) : null}
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleProductionControl}
+            isLoading={productionControlLoading}
+            disabled={["cancelled", "delivered"].includes(order.production_status)}
+          >
+            {order.production_paused ? <Play size={18} /> : <Pause size={18} />}
+            {order.production_paused ? "Retomar producao" : "Pausar producao"}
+          </Button>
           <Button type="button" variant="secondary" onClick={() => setEditOpen(true)}>
             <Pencil size={18} />
             Editar OS
@@ -164,6 +216,16 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
         {actionError ? (
           <div className="rounded-md border border-danger/20 bg-danger/10 p-4 text-sm font-semibold text-danger xl:col-span-3">
             {actionError}
+          </div>
+        ) : null}
+        {success ? (
+          <div className="rounded-md border border-success/20 bg-success/10 p-4 text-sm font-semibold text-success xl:col-span-3">
+            {success}
+          </div>
+        ) : null}
+        {order.production_paused ? (
+          <div className="rounded-md border border-warning/20 bg-warning/5 p-4 text-sm font-semibold text-muted xl:col-span-3">
+            Producao pausada. Pecas destinadas permanecem na OS ate uma devolucao manual ao estoque.
           </div>
         ) : null}
         <FinancialCard label="Total" value={order.total_amount} />
@@ -197,13 +259,26 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
                         {itemFlowLabel(item)}
                       </p>
                     </div>
-                    <p className="text-sm font-black text-ink">
-                      {formatCurrency(
-                        item.services
-                          .reduce((total, service) => total + Number(service.total_price), 0)
-                          .toFixed(2)
-                      )}
-                    </p>
+                    <div className="flex flex-col items-end gap-2">
+                      <p className="text-sm font-black text-ink">
+                        {formatCurrency(
+                          item.services
+                            .reduce((total, service) => total + Number(service.total_price), 0)
+                            .toFixed(2)
+                        )}
+                      </p>
+                      {item.quantity_cut > 0 ? (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => setReturnTarget(item)}
+                          disabled={["cancelled", "delivered"].includes(order.production_status)}
+                        >
+                          <Undo2 size={16} />
+                          Devolver ao estoque
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
                   <div className="mt-4 space-y-2">
                     {item.services.map((service) => (
@@ -279,7 +354,7 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
       <Card>
         <CardHeader>
           <h2 className="text-lg font-black text-ink">Produção</h2>
-          <p className="mt-1 text-sm text-muted">Corte, serigrafia e confecção com progresso por quantidade.</p>
+          <p className="mt-1 text-sm text-muted">Destinacao de corte, serigrafia e confeccao com progresso por quantidade.</p>
         </CardHeader>
         <CardContent>
           <ProductionFlow order={order} />
@@ -303,7 +378,7 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
                     <p className="text-xs font-semibold text-muted">{formatDateTime(entry.at)}</p>
                   </div>
                   <p className="mt-1 text-xs font-semibold text-muted">
-                    Item {entry.itemLabel} / qtd. {entry.quantity ?? "-"} / usuario {entry.user}
+                    {entry.itemLabel === "OS" ? "OS" : `Item ${entry.itemLabel}`} / qtd. {entry.quantity ?? "-"} / usuario {entry.user}
                   </p>
                   {entry.reason ? <p className="mt-2 text-xs font-bold text-warning">Motivo: {entry.reason}</p> : null}
                   {entry.notes ? <p className="mt-1 text-xs text-muted">Obs.: {entry.notes}</p> : null}
@@ -326,6 +401,13 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
         open={editOpen}
         onClose={() => setEditOpen(false)}
         onUpdated={setOrder}
+      />
+      <ReturnCutPiecesModal
+        order={order}
+        item={returnTarget}
+        open={Boolean(returnTarget)}
+        onClose={() => setReturnTarget(null)}
+        onUpdated={handlePiecesReturned}
       />
     </div>
   );
@@ -353,10 +435,15 @@ function FinancialCard({
 function buildOperationalHistory(order: OrderDetailsType) {
   const itemLabel = (itemId: number | null) => {
     const index = order.items.findIndex((item) => item.id === itemId);
-    return index >= 0 ? String(index + 1) : "-";
+    return index >= 0 ? String(index + 1) : "OS";
   };
   const production = order.production_events
-    .filter((event) => event.order_item_id !== null && event.event_type !== "delivery_registered")
+    .filter(
+      (event) =>
+        event.event_type !== "delivery_registered" &&
+        (event.order_item_id !== null ||
+          ["production_paused", "production_resumed"].includes(event.event_type))
+    )
     .map((event) => ({
       key: `event-${event.id}`,
       label: eventLabel(event.event_type),
@@ -392,7 +479,11 @@ function buildOperationalHistory(order: OrderDetailsType) {
 }
 
 function eventLabel(eventType: string) {
-  if (eventType === "cut_registered") return "Corte registrado";
+  if (eventType === "cut_registered") return "Corte registrado no estoque";
+  if (eventType === "cut_pieces_allocated") return "Pecas cortadas destinadas a OS";
+  if (eventType === "cut_pieces_returned") return "Pecas cortadas devolvidas ao estoque";
+  if (eventType === "production_paused") return "Producao pausada";
+  if (eventType === "production_resumed") return "Producao retomada";
   if (eventType === "print_registered") return "DTF/serigrafia registrada";
   if (eventType === "sewing_registered") return "Confeccao registrada";
   if (eventType === "outsourcing_sent") return "Terceirizacao enviada";

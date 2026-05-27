@@ -82,7 +82,12 @@ def register_delivery(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ) -> DeliveryItemRead:
-    order, item = _get_order_item_with_delivery_context(db, order_item_id)
+    order, item = _get_order_item_with_delivery_context(db, order_item_id, for_update=True)
+    if order.production_paused:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A producao desta OS esta pausada. Retome a OS antes de registrar entrega.",
+        )
     sync_item_delivery_status(item, order)
 
     if item.delivery_status == DeliveryStatus.PENDING:
@@ -164,7 +169,13 @@ def _get_delivery_orders(db: Session) -> list[Order]:
 def _get_order_item_with_delivery_context(
     db: Session,
     order_item_id: int,
+    *,
+    for_update: bool = False,
 ) -> tuple[Order, OrderItem]:
+    if for_update:
+        order_id = db.scalar(select(OrderItem.order_id).where(OrderItem.id == order_item_id))
+        if order_id is not None:
+            db.scalar(select(Order).where(Order.id == order_id).with_for_update())
     query = (
         select(OrderItem)
         .where(OrderItem.id == order_item_id)
@@ -227,6 +238,7 @@ def _build_delivery_item(
     return DeliveryItemRead(
         order_id=order.id,
         order_item_id=item.id,
+        production_paused=order.production_paused,
         client=order.client,
         product=item.product,
         size=item.size,

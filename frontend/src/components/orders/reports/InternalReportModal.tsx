@@ -41,10 +41,10 @@ export function InternalReportModal({ open, report, loading, error, onClose }: I
           <ReportSection title="Quantidades">
             <ReportGrid>
               <ReportField label="Solicitada" value={report.quantity_requested} />
-              <ReportField label="Cortada" value={report.quantity_cut} />
+              <ReportField label="Pecas destinadas" value={report.quantity_cut} />
               <ReportField label="Serigrafada" value={report.quantity_printed} />
               <ReportField label="Costurada" value={report.quantity_sewn} />
-              <ReportField label="Extra" value={report.quantity_extra} />
+              <ReportField label="Excedente historico" value={report.quantity_extra} />
             </ReportGrid>
           </ReportSection>
 
@@ -69,7 +69,7 @@ export function InternalReportModal({ open, report, loading, error, onClose }: I
                   <div key={`${event.event_type}-${event.created_at}`} className="rounded-md border border-line bg-white p-3">
                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Badge tone="accent">{event.event_type}</Badge>
+                        <Badge tone="accent">{eventLabel(event.event_type)}</Badge>
                         {event.order_item_id ? <span className="text-sm font-semibold text-muted">Item #{event.order_item_id}</span> : null}
                         {event.quantity !== null ? <span className="text-sm font-semibold text-muted">Qtd. {event.quantity}</span> : null}
                       </div>
@@ -129,4 +129,17 @@ function ReportLoading() {
       ))}
     </div>
   );
+}
+
+function eventLabel(eventType: string) {
+  if (eventType === "cut_registered") return "Corte registrado no estoque";
+  if (eventType === "cut_pieces_allocated") return "Pecas destinadas para OS";
+  if (eventType === "cut_pieces_returned") return "Pecas devolvidas ao estoque";
+  if (eventType === "production_paused") return "Producao pausada";
+  if (eventType === "production_resumed") return "Producao retomada";
+  if (eventType === "print_registered") return "DTF/serigrafia registrada";
+  if (eventType === "sewing_registered") return "Confeccao registrada";
+  if (eventType === "outsourcing_sent") return "Terceirizacao enviada";
+  if (eventType === "outsourcing_returned") return "Retorno da terceirizacao";
+  return eventType;
 }

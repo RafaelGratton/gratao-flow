@@ -213,7 +213,7 @@ export function SewingPage() {
         <SummaryTile label="OS na fila" value={summary.orders} />
         <SummaryTile label="Aptos para costurar" value={summary.ready} />
         <SummaryTile label="Aguardando DTF" value={summary.waiting_print} tone="warning" />
-        <SummaryTile label="Aguardando corte" value={summary.waiting_cut} tone="warning" />
+        <SummaryTile label="Aguardando destinacao" value={summary.waiting_cut} tone="warning" />
       </div>
 
       <section className="space-y-3">
@@ -288,6 +288,7 @@ function SewingOrderCard({
               {group.pendingItems} {pendingLabel}
             </Badge>
             <PriorityBadge priority={group.priority} />
+            {group.order.production_paused ? <Badge tone="warning">Producao pausada</Badge> : null}
           </div>
           <p className="mt-1 text-sm font-semibold text-muted">{group.order.client.name}</p>
         </div>
@@ -296,11 +297,11 @@ function SewingOrderCard({
           <Metric label="Liberados" value={group.readyItems + group.activeItems} tone="success" />
           <Metric label="Andamento" value={group.activeItems} tone="accent" />
           <Metric label="Aguard. DTF" value={group.waitingPrintItems} tone="warning" />
-          <Metric label="Aguard. corte" value={group.waitingCutItems} tone="warning" />
+          <Metric label="Aguard. destinacao" value={group.waitingCutItems} tone="warning" />
         </div>
 
         <div className="grid grid-cols-3 gap-3 rounded-md border border-line bg-white p-3">
-          <Metric label="Disponivel" value={group.availableForSewing} tone="success" />
+          <Metric label="Disponivel p/ confeccao" value={group.availableForSewing} tone="success" />
           <Metric label="Costurado" value={group.sewn} />
           <Metric label="Falta" value={group.missingSewing} tone="warning" />
         </div>
@@ -340,7 +341,8 @@ function SewingItemRow({
 }) {
   const hasPrint = itemNeedsStage(row.item, "print");
   const bucket = sewingBucket(row);
-  const canRegister = row.balances.availableForSewing > 0;
+  const paused = row.order.production_paused;
+  const canRegister = row.balances.availableForSewing > 0 && !paused;
 
   return (
     <div className="grid gap-4 rounded-md border border-line bg-white p-4 xl:grid-cols-[1.2fr_1.3fr_auto] xl:items-center">
@@ -349,6 +351,7 @@ function SewingItemRow({
           <Badge tone="accent">Item {row.itemNumber}</Badge>
           <PriorityBadge priority={row.item.operational_priority} />
           <SewingStatusBadge bucket={bucket} />
+          {paused ? <Badge tone="warning">Producao pausada</Badge> : null}
         </div>
         <p className="mt-2 text-sm text-muted">
           <span className="font-bold text-ink">{row.item.product.name}</span> / {row.item.color || "sem cor"} / Tam. {row.item.size.label}
@@ -357,16 +360,16 @@ function SewingItemRow({
       </div>
 
       <div className="grid grid-cols-2 gap-3 rounded-md border border-line bg-[#FCFAF6] p-3 md:grid-cols-5">
-        <Metric label="Cortado" value={row.balances.cut} />
+        <Metric label="Destinado" value={row.balances.cut} />
         <Metric label="DTF" value={hasPrint ? row.balances.printed : 0} muted={!hasPrint} />
         <Metric label="Costurado" value={row.balances.sewn} />
-        <Metric label="Disponivel" value={row.balances.availableForSewing} tone="success" />
-        <Metric label="Falta" value={row.balances.missingSewing} tone="warning" />
+        <Metric label="Disponivel p/ confeccao" value={row.balances.availableForSewing} tone="success" />
+        <Metric label="Falta costurar" value={row.balances.missingSewing} tone="warning" />
       </div>
 
       <Button type="button" onClick={onRegister} disabled={!canRegister} variant={canRegister ? "primary" : "secondary"}>
         {canRegister ? <Shirt size={16} /> : <LockKeyhole size={16} />}
-        {canRegister ? "Registrar confeccao" : blockedActionLabel(bucket)}
+        {paused ? "Producao pausada" : canRegister ? "Registrar confeccao" : blockedActionLabel(bucket)}
       </Button>
     </div>
   );
@@ -447,7 +450,7 @@ function SewingStatusBadge({ bucket }: { bucket: SewingBucket }) {
   if (bucket === "ready") return <Badge tone="success">Liberado</Badge>;
   if (bucket === "active") return <Badge tone="accent">Em andamento</Badge>;
   if (bucket === "waiting_print") return <Badge tone="warning">Bloqueado aguardando DTF</Badge>;
-  return <Badge tone="warning">Bloqueado aguardando corte</Badge>;
+  return <Badge tone="warning">Bloqueado aguardando destinacao</Badge>;
 }
 
 function sewingBucket(row: OperationalQueueItem): SewingBucket {
@@ -458,7 +461,7 @@ function sewingBucket(row: OperationalQueueItem): SewingBucket {
 
 function blockedActionLabel(bucket: SewingBucket) {
   if (bucket === "waiting_print") return "Aguardando DTF";
-  if (bucket === "waiting_cut") return "Aguardando corte";
+  if (bucket === "waiting_cut") return "Aguardando destinacao";
   return "Registrar confeccao";
 }
 

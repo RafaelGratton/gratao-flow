@@ -73,8 +73,8 @@ export type OperationalQueueItem = {
 };
 
 const statusLabels: Record<OperationalStatus, string> = {
-  waiting_cut: "Aguardando corte",
-  in_cut: "Em corte",
+  waiting_cut: "Aguardando destinacao",
+  in_cut: "Destinacao parcial",
   waiting_print: "Aguardando DTF",
   in_print: "Em DTF",
   waiting_sewing: "Aguardando costura",
@@ -100,8 +100,17 @@ export function itemHasService(item: OrderItem, type: "corte" | "serigrafia" | "
   return item.services.some((service) => service.service.type === type);
 }
 
+function itemRequiresAllocation(item: OrderItem) {
+  return (
+    itemHasService(item, "corte") ||
+    itemHasService(item, "serigrafia") ||
+    itemHasService(item, "confeccao") ||
+    item.sewing_mode === "outsourced"
+  );
+}
+
 export function itemNeedsStage(item: OrderItem, stage: "cut" | "print" | "sew" | "outsourcing") {
-  if (stage === "cut") return itemHasService(item, "corte");
+  if (stage === "cut") return itemRequiresAllocation(item);
   if (stage === "print") return itemHasService(item, "serigrafia");
   if (stage === "sew") return itemHasService(item, "confeccao") && item.sewing_mode === "internal";
   return item.sewing_mode === "outsourced";
@@ -144,7 +153,7 @@ export function itemReadyForOutsourcing(item: OrderItem) {
 
 export function itemFlowLabel(item: OrderItem) {
   const stages = flowStageOptions(item).map((stage) => {
-    if (stage === "cut") return "Corte";
+    if (stage === "cut") return "Destinacao de corte";
     if (stage === "print") return "Serigrafia";
     if (stage === "sew") return "Confeccao interna";
     return "Terceirizacao";
@@ -300,7 +309,7 @@ function deriveNextAction(
   if (balances.readyForDelivery > 0) return "ENTREGAR SALDO";
   if (flags.hasPrint && balances.missingPrint > 0) return "DTF";
   if (flags.hasInternalSewing && balances.availableForSewing > 0) return "CONFECCAO";
-  if (balances.missingCut > 0) return "CORTE";
+  if (balances.missingCut > 0) return "DESTINAR CORTE";
   if (flags.hasInternalSewing && balances.missingSewing > 0) return "AGUARDAR ETAPA ANTERIOR";
   if (flags.hasOutsourcing && balances.awaitingReturn > 0) return "AGUARDAR RETORNO";
   if (flags.hasOutsourcing && balances.readyForOutsourcing > 0) {
@@ -318,7 +327,7 @@ function deriveBlockers(
   if (balances.delivered > 0 && balances.remainingInProduction > 0) {
     blockers.push("Entrega parcial com saldo ainda em producao");
   }
-  if (balances.missingCut > 0) blockers.push("Saldo restante aguardando corte");
+  if (balances.missingCut > 0) blockers.push("Saldo restante aguardando destinacao");
   if (flags.hasPrint && balances.missingPrint > 0) blockers.push("Saldo restante aguardando DTF");
   if (flags.hasInternalSewing && balances.missingSewing > 0) {
     blockers.push("Saldo restante aguardando confeccao");
@@ -412,7 +421,9 @@ function itemOutsourcings(order: OrderDetails, item: OrderItem) {
 }
 
 function productionEventLabel(eventType: string) {
-  if (eventType === "cut_registered") return "Corte registrado";
+  if (eventType === "cut_registered") return "Corte registrado no estoque";
+  if (eventType === "cut_pieces_allocated") return "Pecas cortadas destinadas a OS";
+  if (eventType === "cut_pieces_returned") return "Pecas cortadas devolvidas ao estoque";
   if (eventType === "print_registered") return "DTF registrado";
   if (eventType === "sewing_registered") return "Confeccao registrada";
   if (eventType === "outsourcing_sent") return "Terceirizacao enviada";

@@ -1,7 +1,7 @@
 "use client";
 
-import { Scissors, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowRight, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import type { OrderDetails, OrderItem } from "@/components/orders/types";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -10,52 +10,66 @@ import { api } from "@/lib/api";
 type Props = {
   order: OrderDetails | null;
   item: OrderItem | null;
-  availableStock: number | null;
+  availableStock: number;
   open: boolean;
   onClose: () => void;
   onUpdated: (order: OrderDetails) => void;
 };
 
-export function ProductionCutModal({ order, item, availableStock, open, onClose, onUpdated }: Props) {
+export function AllocateCutPiecesModal({
+  order,
+  item,
+  availableStock,
+  open,
+  onClose,
+  onUpdated
+}: Props) {
+  const missing = item ? Math.max(item.quantity_requested - item.quantity_cut, 0) : 0;
+  const maximum = Math.min(availableStock, missing);
+  const paused = Boolean(order?.production_paused);
   const [quantity, setQuantity] = useState("");
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const paused = Boolean(order?.production_paused);
 
   useEffect(() => {
-    if (open && order && item) {
-      setQuantity("");
+    if (open) {
+      setQuantity(maximum > 0 ? String(maximum) : "");
       setNotes("");
       setError(null);
     }
-  }, [open, order, item]);
+  }, [maximum, open]);
+
+  const amount = useMemo(() => Number(quantity), [quantity]);
 
   if (!open || !order || !item) return null;
 
   async function submit() {
-    if (!order) return;
-    if (!item) return;
+    if (!order || !item) return;
     if (paused) {
-      setError("A producao desta OS esta pausada. Retome a OS antes de registrar corte.");
+      setError("A producao desta OS esta pausada. Retome a OS antes de destinar pecas.");
       return;
     }
-    const amount = Number(quantity);
-    if (!Number.isInteger(amount) || amount <= 0) {
-      setError("Informe uma quantidade cortada maior que zero.");
+    if (!Number.isInteger(amount) || amount <= 0 || amount > maximum) {
+      setError(`Informe uma quantidade entre 1 e ${maximum}.`);
       return;
     }
+
     setLoading(true);
     setError(null);
     try {
-      const updated = await api.post<OrderDetails>(`/orders/${order.id}/items/${item.id}/cut`, {
-        quantity: amount,
-        notes: notes.trim() || null
-      });
+      const updated = await api.post<OrderDetails>(
+        `/orders/${order.id}/items/${item.id}/allocate-cut-pieces`,
+        { quantity: amount, notes: notes.trim() || null }
+      );
       onUpdated(updated);
       onClose();
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Nao foi possivel registrar o corte.");
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Nao foi possivel destinar as pecas para a OS."
+      );
     } finally {
       setLoading(false);
     }
@@ -63,16 +77,16 @@ export function ProductionCutModal({ order, item, availableStock, open, onClose,
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/35 p-4">
-      <div className="w-full max-w-md rounded-lg border border-line bg-white shadow-soft">
+      <div className="w-full max-w-lg rounded-lg border border-line bg-white shadow-soft">
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <div className="flex items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-md bg-accent-soft text-accent-dark">
-              <Scissors size={18} />
+              <ArrowRight size={18} />
             </div>
             <div>
-              <h2 className="text-lg font-black text-ink">Registrar corte para estoque</h2>
+              <h2 className="text-lg font-black text-ink">Destinar pecas para a OS</h2>
               <p className="text-sm font-semibold text-muted">
-                OS #{order.id} - {item.product.name} / Tam. {item.size.label} / {item.color || "Sem cor"}
+                OS #{order.id} - {order.client.name}
               </p>
             </div>
           </div>
@@ -92,41 +106,50 @@ export function ProductionCutModal({ order, item, availableStock, open, onClose,
           ) : null}
           {paused ? (
             <div className="rounded-md border border-warning/25 bg-warning/10 p-3 text-sm font-semibold text-warning">
-              Producao pausada. Retome a OS para registrar corte para estoque.
+              Producao pausada. Retome a OS para destinar pecas.
             </div>
           ) : null}
+          <p className="text-sm font-semibold text-muted">
+            {item.product.name} / Tam. {item.size.label} / {item.color || "Sem cor"}
+          </p>
+          <div className="grid grid-cols-2 gap-3 rounded-md border border-line bg-[#FCFAF6] p-3">
+            <Metric label="Solicitado" value={item.quantity_requested} />
+            <Metric label="Ja destinado" value={item.quantity_cut} />
+            <Metric label="Falta destinar" value={missing} />
+            <Metric label="Disponivel em estoque" value={availableStock} />
+          </div>
           <Input
-            label="Quantidade cortada agora"
+            label="Quantidade a destinar"
             type="number"
             min="1"
+            max={maximum}
             step="1"
             value={quantity}
             onChange={(event) => setQuantity(event.target.value)}
           />
           <label className="block space-y-2">
-            <span className="text-sm font-semibold text-ink">Observacao operacional</span>
+            <span className="text-sm font-semibold text-ink">Observacao (opcional)</span>
             <textarea
-              className="min-h-24 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink shadow-insetline transition focus:focus-ring"
+              className="min-h-20 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink shadow-insetline transition focus:focus-ring"
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
             />
           </label>
-          <div className="grid grid-cols-2 gap-3 rounded-md border border-line bg-[#FCFAF6] p-3 text-xs font-semibold leading-5 text-muted">
-            <Metric label="Solicitado" value={item.quantity_requested} />
-            <Metric label="Destinado para a OS" value={item.quantity_cut} />
-            <Metric label="Falta destinar" value={Math.max(item.quantity_requested - item.quantity_cut, 0)} />
-            <Metric label="Disponivel em estoque" value={availableStock ?? 0} />
-          </div>
           <p className="text-xs font-semibold leading-5 text-muted">
-            As pecas registradas entram no estoque de cortadas. Para liberar esta OS, use a acao
-            Destinar pecas.
+            A destinacao reduz o saldo compativel em estoque e libera somente esta quantidade
+            para o fluxo produtivo da OS.
           </p>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={onClose}>
               Cancelar
             </Button>
-            <Button type="button" isLoading={loading} disabled={paused || !quantity || Number(quantity) <= 0} onClick={submit}>
-              Registrar
+            <Button
+              type="button"
+              isLoading={loading}
+              disabled={paused || !quantity || maximum <= 0 || amount <= 0 || amount > maximum}
+              onClick={submit}
+            >
+              Destinar para OS
             </Button>
           </div>
         </div>
@@ -138,8 +161,8 @@ export function ProductionCutModal({ order, item, availableStock, open, onClose,
 function Metric({ label, value }: { label: string; value: number }) {
   return (
     <div>
-      <p className="text-[11px] uppercase tracking-[0.1em]">{label}</p>
-      <p className="mt-1 text-base font-black text-ink">{value}</p>
+      <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">{label}</p>
+      <p className="mt-1 text-lg font-black text-ink">{value}</p>
     </div>
   );
 }

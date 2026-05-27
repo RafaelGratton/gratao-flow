@@ -29,6 +29,7 @@ class Order(Base):
     size_id: Mapped[int] = mapped_column(ForeignKey("sizes.id"), nullable=False)
     color: Mapped[str] = mapped_column(String(100), nullable=False)
     quantity_requested: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Quantity of cut pieces explicitly allocated and released to this order.
     quantity_cut: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     quantity_extra: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     print_type: Mapped[PrintType | None] = mapped_column(
@@ -42,6 +43,7 @@ class Order(Base):
     allow_printing_exception: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
     )
+    production_paused: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     quantity_printed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     quantity_sewn: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     lot: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -139,6 +141,7 @@ class OrderItem(Base):
     size_id: Mapped[int] = mapped_column(ForeignKey("sizes.id"), nullable=False)
     color: Mapped[str] = mapped_column(String(100), nullable=False)
     quantity_requested: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Quantity of cut pieces explicitly allocated and released to this order item.
     quantity_cut: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     quantity_printed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     quantity_sewn: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

@@ -36,6 +36,8 @@ from app.models.size import Size
 from app.models.user import User
 from app.models.weekly_closing import WeeklyClosing
 from app.schemas.order import (
+    CutPieceAllocation,
+    CutPieceReturn,
     CutRegister,
     ItemQuantityRegister,
     OperationalAdjustmentRegister,
@@ -68,6 +70,7 @@ from app.services.deliveries import (
     sync_order_items_delivery_status,
 )
 from app.services.stock import (
+    get_piece_stock_items_for_order_item,
     get_or_create_piece_stock_item_for_order_item,
     register_stock_movement,
 )
@@ -117,6 +120,7 @@ def create_order(
         quantity_printed=0,
         quantity_sewn=0,
         allow_printing_exception=payload.allow_printing_exception,
+        production_paused=False,
         lot=payload.lot,
         notes=payload.notes,
         production_status=ProductionStatus.CREATED,
@@ -237,6 +241,58 @@ def delete_order(
     return _get_order_or_404(db, order.id)
 
 
+@router.post("/{order_id}/pause-production", response_model=OrderRead, status_code=201)
+def pause_order_production(
+    order_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> Order:
+    order = _get_order_or_404(db, order_id, for_update=True)
+    _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    _ensure_order_is_open_for_production_control(order)
+    if order.production_paused:
+        return order
+
+    order.production_paused = True
+    _add_production_event(
+        db,
+        order=order,
+        item=None,
+        event_type=ProductionEventType.PRODUCTION_PAUSED,
+        stage="production",
+        notes="Producao pausada.",
+        user=user,
+    )
+    db.commit()
+    return _get_order_or_404(db, order.id)
+
+
+@router.post("/{order_id}/resume-production", response_model=OrderRead, status_code=201)
+def resume_order_production(
+    order_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> Order:
+    order = _get_order_or_404(db, order_id, for_update=True)
+    _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    _ensure_order_is_open_for_production_control(order)
+    if not order.production_paused:
+        return order
+
+    order.production_paused = False
+    _add_production_event(
+        db,
+        order=order,
+        item=None,
+        event_type=ProductionEventType.PRODUCTION_RESUMED,
+        stage="production",
+        notes="Producao retomada.",
+        user=user,
+    )
+    db.commit()
+    return _get_order_or_404(db, order.id)
+
+
 @router.get("/{order_id}/report/internal", response_model=InternalOrderReport)
 def get_internal_order_report(
     order_id: int,
@@ -317,17 +373,12 @@ def register_cut(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
-    order = _get_order_or_404(db, order_id)
+    order = _get_order_or_404(db, order_id, for_update=True)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    _ensure_production_operation_allowed(order)
     item = _get_single_item_for_legacy_operation(order)
 
-    if payload.quantity_cut < item.quantity_cut:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="quantity_cut cannot be lower than the current cut quantity",
-        )
-
-    _set_item_cut_quantity(db, order, item, payload.quantity_cut, payload.quantity_cut, payload.notes, user)
+    _register_cut_entry(db, order, item, payload.quantity_cut, payload.notes, user)
 
     db.commit()
     return _get_order_or_404(db, order.id)
@@ -340,8 +391,9 @@ def register_print(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
-    order = _get_order_or_404(db, order_id)
+    order = _get_order_or_404(db, order_id, for_update=True)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    _ensure_production_operation_allowed(order)
     item = _get_single_item_for_legacy_operation(order)
     _validate_item_print_registration(order, item, payload)
 
@@ -374,8 +426,9 @@ def register_sewing(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
-    order = _get_order_or_404(db, order_id)
+    order = _get_order_or_404(db, order_id, for_update=True)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    _ensure_production_operation_allowed(order)
     item = _get_single_item_for_legacy_operation(order)
     _validate_item_sewing_registration(item, payload)
 
@@ -412,12 +465,148 @@ def register_item_cut(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
-    order = _get_order_or_404(db, order_id)
+    order = _get_order_or_404(db, order_id, for_update=True)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    _ensure_production_operation_allowed(order)
     item = _get_order_item_or_404(order, item_id)
 
-    new_quantity = item.quantity_cut + payload.quantity
-    _set_item_cut_quantity(db, order, item, new_quantity, payload.quantity, payload.notes, user)
+    _register_cut_entry(db, order, item, payload.quantity, payload.notes, user)
+
+    db.commit()
+    return _get_order_or_404(db, order.id)
+
+
+@router.post(
+    "/{order_id}/items/{item_id}/allocate-cut-pieces",
+    response_model=OrderRead,
+    status_code=201,
+)
+def allocate_cut_pieces_to_item(
+    order_id: int,
+    item_id: int,
+    payload: CutPieceAllocation,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> Order:
+    order = _get_order_or_404(db, order_id, for_update=True)
+    _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    _ensure_production_operation_allowed(order)
+    item = _get_order_item_or_404(order, item_id)
+    remaining_needed = item.quantity_requested - item.quantity_cut
+    if payload.quantity > remaining_needed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Quantidade destinada excede a necessidade restante do item ({remaining_needed}).",
+        )
+
+    stock_items = get_piece_stock_items_for_order_item(db, item)
+    if not stock_items:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nao existe estoque de pecas cortadas compativel para este item.",
+        )
+    available_quantity = sum(
+        (stock_item.quantity for stock_item in stock_items),
+        Decimal("0.00"),
+    )
+    if available_quantity < Decimal(payload.quantity):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Saldo disponivel insuficiente no estoque compativel ({int(available_quantity)}).",
+        )
+
+    before_quantity = item.quantity_cut
+    remaining_quantity = Decimal(payload.quantity)
+    for stock_item in stock_items:
+        movement_quantity = min(stock_item.quantity, remaining_quantity)
+        if movement_quantity <= Decimal("0.00"):
+            continue
+        register_stock_movement(
+            db,
+            stock_item,
+            movement_type=StockMovementType.ALLOCATED_TO_ORDER,
+            quantity=movement_quantity,
+            reference_type="order_item",
+            reference_id=item.id,
+            notes=_clean_optional_text(payload.notes),
+        )
+        remaining_quantity -= movement_quantity
+        if remaining_quantity == Decimal("0.00"):
+            break
+    item.quantity_cut += payload.quantity
+    _add_production_event(
+        db,
+        order=order,
+        item=item,
+        event_type=ProductionEventType.CUT_PIECES_ALLOCATED,
+        stage="cut_allocation",
+        quantity=payload.quantity,
+        before_quantity=before_quantity,
+        after_quantity=item.quantity_cut,
+        notes=_clean_optional_text(payload.notes),
+        user=user,
+    )
+    _sync_order_production_snapshot(db, order, payload.quantity, user)
+    sync_order_items_delivery_status(order)
+
+    db.commit()
+    return _get_order_or_404(db, order.id)
+
+
+@router.post(
+    "/{order_id}/items/{item_id}/return-cut-pieces-to-stock",
+    response_model=OrderRead,
+    status_code=201,
+)
+def return_cut_pieces_to_stock(
+    order_id: int,
+    item_id: int,
+    payload: CutPieceReturn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> Order:
+    order = _get_order_or_404(db, order_id, for_update=True)
+    _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    _ensure_order_is_open_for_production_control(order)
+    item = _get_order_item_or_404(order, item_id)
+    committed_quantity = _committed_cut_piece_quantity(order, item)
+    returnable_quantity = item.quantity_cut - committed_quantity
+    if payload.quantity > returnable_quantity:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Quantidade devolvida excede o saldo destinado ainda nao comprometido "
+                f"({max(returnable_quantity, 0)})."
+            ),
+        )
+
+    stock_item = get_or_create_piece_stock_item_for_order_item(db, item)
+    before_quantity = item.quantity_cut
+    register_stock_movement(
+        db,
+        stock_item,
+        movement_type=StockMovementType.RETURNED_FROM_ORDER,
+        quantity=Decimal(payload.quantity),
+        reference_type="order_item",
+        reference_id=item.id,
+        notes=payload.notes,
+    )
+    item.quantity_cut -= payload.quantity
+    _add_production_event(
+        db,
+        order=order,
+        item=item,
+        event_type=ProductionEventType.CUT_PIECES_RETURNED,
+        stage="cut_allocation",
+        quantity=payload.quantity,
+        before_quantity=before_quantity,
+        after_quantity=item.quantity_cut,
+        reason=payload.notes,
+        notes=payload.notes,
+        user=user,
+    )
+    sync_order_items_delivery_status(order)
+    _sync_order_production_snapshot(db, order, payload.quantity, user)
 
     db.commit()
     return _get_order_or_404(db, order.id)
@@ -435,8 +624,9 @@ def register_item_print(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
-    order = _get_order_or_404(db, order_id)
+    order = _get_order_or_404(db, order_id, for_update=True)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    _ensure_production_operation_allowed(order)
     item = _get_order_item_or_404(order, item_id)
     _validate_item_print_registration(order, item, payload)
 
@@ -474,8 +664,9 @@ def register_item_sewing(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
-    order = _get_order_or_404(db, order_id)
+    order = _get_order_or_404(db, order_id, for_update=True)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    _ensure_production_operation_allowed(order)
     item = _get_order_item_or_404(order, item_id)
     _validate_item_sewing_registration(item, payload)
 
@@ -507,8 +698,9 @@ def create_order_outsourcing(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
-    order = _get_order_or_404(db, order_id)
+    order = _get_order_or_404(db, order_id, for_update=True)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    _ensure_production_operation_allowed(order)
     item = _validate_outsourcing_item(order, payload.order_item_id)
     _validate_outsourcer_exists(db, payload.outsourcer_id)
     if payload.direct_to_customer:
@@ -601,8 +793,9 @@ def register_outsourcing_return(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
-    order = _get_order_or_404(db, order_id)
+    order = _get_order_or_404(db, order_id, for_update=True)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    _ensure_order_is_open_for_production_control(order)
     outsourcing = _get_order_outsourcing_or_404(db, order_id, outsourcing_id)
 
     if outsourcing.direct_to_customer:
@@ -699,8 +892,9 @@ def register_item_loss(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
-    order = _get_order_or_404(db, order_id)
+    order = _get_order_or_404(db, order_id, for_update=True)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    _ensure_production_operation_allowed(order)
     item = _get_order_item_or_404(order, item_id)
 
     _add_production_event(
@@ -730,8 +924,9 @@ def register_item_rework(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
-    order = _get_order_or_404(db, order_id)
+    order = _get_order_or_404(db, order_id, for_update=True)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    _ensure_production_operation_allowed(order)
     item = _get_order_item_or_404(order, item_id)
 
     _add_production_event(
@@ -761,9 +956,18 @@ def register_item_adjustment(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ) -> Order:
-    order = _get_order_or_404(db, order_id)
+    order = _get_order_or_404(db, order_id, for_update=True)
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    _ensure_production_operation_allowed(order)
     item = _get_order_item_or_404(order, item_id)
+    if payload.stage == "cut":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "A quantidade destinada nao pode ser ajustada diretamente. "
+                "Use destinacao ou devolucao de pecas cortadas."
+            ),
+        )
 
     before_quantity = _quantity_for_adjustment_stage(item, payload.stage)
     after_quantity = before_quantity + payload.quantity_delta
@@ -893,18 +1097,18 @@ def _validate_cut_adjustment(order: Order, item: OrderItem, after_quantity: int)
     if after_quantity < item.quantity_printed:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Corte nao pode ficar menor que a quantidade ja estampada.",
+            detail="Saldo destinado nao pode ficar menor que a quantidade ja estampada.",
         )
     outsourced_quantity = _active_item_outsourced_quantity(order, item)
     if not _item_has_printing(item) and after_quantity < outsourced_quantity:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Corte nao pode ficar menor que a quantidade ja enviada para terceirizacao.",
+            detail="Saldo destinado nao pode ficar menor que a quantidade ja enviada para terceirizacao.",
         )
     if not _item_has_printing(item) and not _item_has_sewing(item) and after_quantity < item.quantity_delivered:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Corte nao pode ficar menor que a quantidade ja entregue.",
+            detail="Saldo destinado nao pode ficar menor que a quantidade ja entregue.",
         )
 
 
@@ -917,7 +1121,7 @@ def _validate_print_adjustment(order: Order, item: OrderItem, after_quantity: in
     if after_quantity > item.quantity_cut:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="DTF nao pode ficar maior que a quantidade cortada.",
+            detail="DTF nao pode ficar maior que a quantidade destinada para a OS.",
         )
     if after_quantity > item.quantity_requested:
         raise HTTPException(
@@ -988,6 +1192,15 @@ def _active_item_outsourced_quantity(order: Order, item: OrderItem) -> int:
     )
 
 
+def _committed_cut_piece_quantity(order: Order, item: OrderItem) -> int:
+    return max(
+        item.quantity_printed,
+        item.quantity_sewn,
+        item.quantity_delivered,
+        _active_item_outsourced_quantity(order, item),
+    )
+
+
 def _build_item_operational_history(
     order: Order,
     item: OrderItem,
@@ -1039,7 +1252,11 @@ def _build_item_operational_history(
 
 def _production_event_label(event: ProductionEvent) -> str:
     labels = {
-        ProductionEventType.CUT_REGISTERED: "Corte registrado",
+        ProductionEventType.CUT_REGISTERED: "Corte registrado no estoque",
+        ProductionEventType.CUT_PIECES_ALLOCATED: "Pecas cortadas destinadas a OS",
+        ProductionEventType.CUT_PIECES_RETURNED: "Pecas cortadas devolvidas ao estoque",
+        ProductionEventType.PRODUCTION_PAUSED: "Producao pausada",
+        ProductionEventType.PRODUCTION_RESUMED: "Producao retomada",
         ProductionEventType.PRINT_REGISTERED: "DTF/serigrafia registrada",
         ProductionEventType.SEWING_REGISTERED: "Confeccao registrada",
         ProductionEventType.OUTSOURCING_SENT: "Terceirizacao enviada",
@@ -1121,6 +1338,14 @@ def _apply_safe_order_update(db: Session, order: Order, payload: OrderUpdate) ->
                 detail=(
                     "Esta OS ja possui movimentacoes. Campos de produto, tamanho, "
                     "servicos e producao final nao podem ser alterados."
+                ),
+            )
+        if item_payload.color != item.color and item.quantity_cut > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Nao e possivel alterar a cor de um item que possui pecas "
+                    "cortadas destinadas. Devolva o saldo antes de alterar a cor."
                 ),
             )
         movement_floor = _item_quantity_movement_floor(order, item)
@@ -1357,7 +1582,7 @@ def _normalized_sewing_mode(item: object, services: list[Service]) -> SewingMode
     return sewing_mode or SewingMode.INTERNAL
 
 
-def _get_order_or_404(db: Session, order_id: int) -> Order:
+def _get_order_or_404(db: Session, order_id: int, *, for_update: bool = False) -> Order:
     query = (
         select(Order)
         .where(Order.id == order_id)
@@ -1377,6 +1602,8 @@ def _get_order_or_404(db: Session, order_id: int) -> Order:
             selectinload(Order.outsourcings).selectinload(OrderOutsourcing.outsourcer),
         )
     )
+    if for_update:
+        query = query.with_for_update()
     order = db.scalar(query)
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -1392,48 +1619,37 @@ def _get_single_item_for_legacy_operation(order: Order) -> OrderItem:
     return order.items[0]
 
 
-def _set_item_cut_quantity(
+def _register_cut_entry(
     db: Session,
     order: Order,
     item: OrderItem,
-    new_quantity: int,
-    event_quantity: int,
+    quantity: int,
     notes: str | None,
     user: User | None,
 ) -> None:
-    previous_extra = max(item.quantity_cut - item.quantity_requested, 0)
-    before_quantity = item.quantity_cut
-    item.quantity_cut = new_quantity
-    next_extra = max(item.quantity_cut - item.quantity_requested, 0)
-    quantity_extra_delta = next_extra - previous_extra
-
+    stock_item = get_or_create_piece_stock_item_for_order_item(db, item)
+    previous_stock_quantity = int(stock_item.quantity)
+    register_stock_movement(
+        db,
+        stock_item,
+        movement_type=StockMovementType.CUT_ENTRY,
+        quantity=Decimal(quantity),
+        reference_type="order_item",
+        reference_id=item.id,
+        notes=_clean_optional_text(notes),
+    )
     _add_production_event(
         db,
         order=order,
         item=item,
         event_type=ProductionEventType.CUT_REGISTERED,
-        stage="cut",
-        quantity=event_quantity,
-        notes=notes,
+        stage="cut_stock",
+        quantity=quantity,
+        notes=_clean_optional_text(notes),
         user=user,
-        before_quantity=before_quantity,
-        after_quantity=item.quantity_cut,
+        before_quantity=previous_stock_quantity,
+        after_quantity=int(stock_item.quantity),
     )
-
-    if quantity_extra_delta > 0:
-        stock_item = get_or_create_piece_stock_item_for_order_item(db, item)
-        register_stock_movement(
-            db,
-            stock_item,
-            movement_type=StockMovementType.EXCESS_CUT,
-            quantity=Decimal(quantity_extra_delta),
-            reference_type="order_item",
-            reference_id=item.id,
-            notes=notes,
-        )
-
-    _sync_order_production_snapshot(db, order, event_quantity, user)
-    sync_order_items_delivery_status(order)
 
 
 def _get_order_item_or_404(order: Order, item_id: int) -> OrderItem:
@@ -1472,6 +1688,23 @@ def _ensure_order_is_not_in_closed_weekly_closing(db: Session, order: Order) -> 
         )
 
 
+def _ensure_order_is_open_for_production_control(order: Order) -> None:
+    if order.production_status in {ProductionStatus.CANCELLED, ProductionStatus.DELIVERED}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nao e possivel alterar a producao de uma OS cancelada ou entregue.",
+        )
+
+
+def _ensure_production_operation_allowed(order: Order) -> None:
+    _ensure_order_is_open_for_production_control(order)
+    if order.production_paused:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A producao desta OS esta pausada. Retome a OS antes de avancar.",
+        )
+
+
 def _money(value: Decimal) -> Decimal:
     return value.quantize(MONEY_QUANTIZER)
 
@@ -1489,12 +1722,12 @@ def _validate_item_print_registration(
     if item.quantity_cut == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Nao e possivel registrar serigrafia antes do corte do item.",
+            detail="Nao e possivel registrar serigrafia sem pecas destinadas para este item.",
         )
     if item.quantity_printed + payload.quantity > item.quantity_cut:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Nao e possivel estampar mais do que a quantidade cortada do item.",
+            detail="Nao e possivel estampar mais do que a quantidade destinada para este item.",
         )
     if item.quantity_printed + payload.quantity > item.quantity_requested:
         remaining = item.quantity_requested - item.quantity_printed
@@ -1524,7 +1757,7 @@ def _validate_item_sewing_registration(item: OrderItem, payload: SewingRegister)
     if item.quantity_cut == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Nao e possivel registrar confeccao antes do corte do item.",
+            detail="Nao e possivel registrar confeccao sem pecas destinadas para este item.",
         )
     sewing_limit = (
         min(item.quantity_printed, item.quantity_requested)
@@ -1574,7 +1807,7 @@ def _validate_outsourcing_item(order: Order, order_item_id: int) -> OrderItem:
     if item.quantity_cut < item.quantity_requested:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Nao e possivel terceirizar antes de concluir o corte do item.",
+            detail="Nao e possivel terceirizar antes de concluir a destinacao do item.",
         )
     if _item_has_printing(item) and item.quantity_printed < item.quantity_requested:
         raise HTTPException(
@@ -1777,9 +2010,9 @@ def _derive_single_item_status(order: Order, item: OrderItem) -> ProductionStatu
         return ProductionStatus.PRINT_DONE
     if _item_has_printing(item) and item.quantity_printed > 0:
         return ProductionStatus.IN_PRINT
-    if _item_has_cut(item) and item.quantity_cut >= item.quantity_requested:
+    if item.quantity_cut >= item.quantity_requested:
         return ProductionStatus.CUT_DONE
-    if _item_has_cut(item) and item.quantity_cut > 0:
+    if item.quantity_cut > 0:
         return ProductionStatus.IN_CUT
     return ProductionStatus.CREATED
 

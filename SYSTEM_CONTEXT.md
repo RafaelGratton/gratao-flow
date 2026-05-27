@@ -123,9 +123,12 @@ created
 
 ### CORTE
 
-* quantity_cut pode ser maior que solicitado
-* excedente vira estoque
+* todo novo corte fisico entra integralmente no estoque livre de pecas cortadas
+* OrderItem.quantity_cut representa somente pecas destinadas/liberadas para a OS
+* o corte fisico nao destina pecas automaticamente
+* a quantidade cortada pode superar a necessidade da OS, pois gera estoque livre
 * gera evento: cut_registered
+* destinacao e devolucao geram cut_pieces_allocated e cut_pieces_returned
 
 ---
 
@@ -143,8 +146,8 @@ Exceção:
 
 Validações:
 
-* não pode imprimir sem corte
-* não pode imprimir mais que cortado
+* nao pode imprimir sem pecas destinadas para a OS
+* nao pode imprimir mais que o saldo destinado disponivel
 
 Eventos:
 
@@ -156,8 +159,8 @@ Eventos:
 
 Regras:
 
-* Se houver serigrafia -> só após print_done
-* Se não houver -> após cut_done
+* Se houver serigrafia -> somente sobre quantidade destinada e ja estampada
+* Se nao houver -> somente sobre quantidade destinada para a OS
 
 Validações:
 

@@ -18,7 +18,7 @@ type ProductionActionModalProps = {
 };
 
 const labels: Record<ActionType, string> = {
-  cut: "Registrar corte",
+  cut: "Registrar corte para estoque",
   print: "Registrar serigrafia",
   sew: "Registrar confeccao"
 };
@@ -34,11 +34,16 @@ export function ProductionActionModal({
   const [printType, setPrintType] = useState("front");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const paused = order.production_paused;
 
   if (!open || action === null) return null;
 
   async function submit() {
     if (action === null) return;
+    if (paused) {
+      setError("A producao desta OS esta pausada. Retome a OS antes de avancar.");
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -81,8 +86,13 @@ export function ProductionActionModal({
               {error}
             </div>
           ) : null}
+          {paused ? (
+            <div className="rounded-md border border-warning/25 bg-warning/10 p-3 text-sm font-semibold text-warning">
+              Producao pausada. Retome a OS para registrar esta operacao.
+            </div>
+          ) : null}
           <Input
-            label={action === "cut" ? "Quantidade cortada total" : "Quantidade"}
+            label={action === "cut" ? "Quantidade cortada para estoque agora" : "Quantidade"}
             type="number"
             min="1"
             step="1"
@@ -103,13 +113,15 @@ export function ProductionActionModal({
             </label>
           ) : null}
           <div className="rounded-md border border-line bg-[#FCFAF6] p-3 text-xs font-semibold leading-5 text-muted">
-            Corte informa o total acumulado. Serigrafia e confeccao registram incrementos.
+            {action === "cut"
+              ? "O corte entra no estoque e ainda precisa ser destinado para liberar a OS."
+              : "Serigrafia e confeccao registram incrementos sobre o saldo destinado."}
           </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={onClose}>
               Cancelar
             </Button>
-            <Button type="button" isLoading={loading} disabled={!quantity} onClick={submit}>
+            <Button type="button" isLoading={loading} disabled={paused || !quantity} onClick={submit}>
               Registrar
             </Button>
           </div>
