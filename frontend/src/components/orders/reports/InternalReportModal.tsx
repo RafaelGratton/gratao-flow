@@ -107,7 +107,7 @@ export function InternalReportModal({ open, report, loading, error, onClose }: I
                       <ReportField label="Repasse unitário" value={formatCurrency(outsourcing.outsourcer_unit_price)} />
                       <ReportField label="Total cliente" value={formatCurrency(outsourcing.customer_total)} />
                       <ReportField label="Total repasse" value={formatCurrency(outsourcing.outsourcer_total)} />
-                      <ReportField label="Lucro terceirização" value={formatCurrency(outsourcing.profit_total)} />
+                      <ReportField label="Resultado ref." value={formatCurrency(outsourcing.profit_total)} />
                       </ReportGrid>
                     </div>
                   </div>

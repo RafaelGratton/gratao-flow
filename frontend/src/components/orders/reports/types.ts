@@ -37,6 +37,7 @@ export type ReportItem = {
   delivery_status: string;
   sewing_mode: string | null;
   services: ReportService[];
+  outsourcing_services?: ReportService[];
 };
 
 export type InternalReportPayment = {

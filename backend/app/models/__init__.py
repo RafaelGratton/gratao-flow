@@ -1,6 +1,7 @@
 from app.models.client import Client
 from app.models.employee import Employee, EmployeeWorkLog
 from app.models.order import (
+    ClientOrderGroup,
     DeliveryHistory,
     Order,
     OrderItem,
@@ -20,6 +21,7 @@ from app.models.weekly_closing import WeeklyClosing
 
 __all__ = [
     "Client",
+    "ClientOrderGroup",
     "DeliveryHistory",
     "Employee",
     "EmployeeWorkLog",

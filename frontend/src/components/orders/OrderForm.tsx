@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { api } from "@/lib/api";
+import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const requiredSelectNumber = (message: string) =>
@@ -35,14 +36,15 @@ const itemSchema = z.object({
   size_id: requiredSelectNumber("Selecione um tamanho"),
   color: z
     .string()
-    .optional()
-    .transform((value) => value?.trim() ?? ""),
+    .trim()
+    .min(1, "Informe a cor."),
   quantity_requested: z.coerce.number().int().positive("Informe uma quantidade valida."),
   operational_priority: z.enum(["normal", "urgent", "critical"]).default("normal"),
   sewing_mode: z.enum(["internal", "outsourced"]).default("internal"),
   service_ids: z
     .array(z.coerce.number().int().positive())
     .min(1, "Selecione pelo menos um servico."),
+  service_prices: z.record(z.string(), z.string()).default({}),
   notes: z.string().optional()
 });
 
@@ -63,6 +65,7 @@ type FormInput = {
     operational_priority: OperationalPriority;
     sewing_mode: SewingMode;
     service_ids: number[];
+    service_prices: Record<string, string>;
     notes: string;
   }>;
   allow_printing_exception: boolean;
@@ -91,6 +94,7 @@ const emptyItem = () => ({
   operational_priority: "normal" as OperationalPriority,
   sewing_mode: "internal" as SewingMode,
   service_ids: [],
+  service_prices: {},
   notes: ""
 });
 
@@ -143,7 +147,7 @@ export function OrderForm() {
           setCatalogs({
             clients: clients.filter((client) => client.is_active),
             products: products.filter((product) => product.is_active !== false),
-            sizes,
+            sizes: sizes.filter((size) => size.is_active !== false),
             services: services.filter((service) => service.is_active !== false)
           });
         }
@@ -178,10 +182,7 @@ export function OrderForm() {
             item.service_ids.includes(service.id) &&
             !(item.sewing_mode === "outsourced" && service.type === "confeccao")
         )
-        .reduce(
-          (total, service) => total + Number(service.price_per_unit ?? 0) * quantity,
-          0
-        );
+        .reduce((total, service) => total + servicePriceForItem(item, service) * quantity, 0);
       return orderTotal + itemTotal;
     }, 0);
   }, [catalogs.services, watchedItems]);
@@ -206,6 +207,7 @@ export function OrderForm() {
               (serviceId) =>
                 !(item.sewing_mode === "outsourced" && isSewingService(serviceId))
             );
+          const servicePrices = buildServicePrices(item, serviceIds, catalogs.services);
           return {
             product_id: item.product_id,
             size_id: item.size_id,
@@ -219,7 +221,8 @@ export function OrderForm() {
                   ? "internal"
                   : null,
             notes: item.notes?.trim() ? item.notes : null,
-            service_ids: serviceIds
+            service_ids: serviceIds,
+            service_prices: servicePrices
           };
         })
       });
@@ -242,11 +245,23 @@ export function OrderForm() {
 
     const fieldName = `items.${itemIndex}.service_ids` as const;
     const selectedServices = watch(fieldName) ?? [];
+    const priceFieldName = `items.${itemIndex}.service_prices` as const;
+    const currentPrices = watch(priceFieldName) ?? {};
     const removing = selectedServices.includes(serviceId);
     const next = removing
       ? selectedServices.filter((id) => id !== serviceId)
       : [...selectedServices, serviceId];
     setValue(fieldName, next, { shouldDirty: true, shouldValidate: true });
+    if (!removing) {
+      setValue(
+        priceFieldName,
+        {
+          ...currentPrices,
+          [serviceId]: currentPrices[String(serviceId)] ?? defaultMoneyInput(toggledService?.price_per_unit)
+        },
+        { shouldDirty: true, shouldValidate: true }
+      );
+    }
   }
 
   function itemHasSewingService(serviceIds: number[]) {
@@ -541,6 +556,58 @@ export function OrderForm() {
                     );
                   })}
                 </div>
+                {selectedServices.length > 0 ? (
+                  <div className="space-y-3 rounded-md border border-line bg-white p-4">
+                    <div className="grid gap-2 text-xs font-bold uppercase tracking-[0.12em] text-muted md:grid-cols-[1fr_160px_150px]">
+                      <span>Servico</span>
+                      <span>Preco unitario</span>
+                      <span className="md:text-right">Subtotal</span>
+                    </div>
+                    {selectedServices
+                      .map((serviceId) => catalogs.services.find((service) => service.id === serviceId))
+                      .filter((service): service is CatalogItem => Boolean(service))
+                      .map((service) => {
+                        const unitPrice =
+                          watchedItems[index]?.service_prices?.[String(service.id)] ??
+                          defaultMoneyInput(service.price_per_unit);
+                        const subtotal =
+                          parseMoneyInput(unitPrice) *
+                          Number(watchedItems[index]?.quantity_requested || 0);
+                        return (
+                          <div
+                            key={service.id}
+                            className="grid items-end gap-2 md:grid-cols-[1fr_160px_150px]"
+                          >
+                            <div>
+                              <p className="text-sm font-black text-ink">{service.name}</p>
+                              <p className="mt-1 text-xs font-semibold text-muted">
+                                Preco sugerido: {formatCurrency(service.price_per_unit ?? "0")}
+                              </p>
+                            </div>
+                            <Input
+                              label="Preco unitario"
+                              inputMode="decimal"
+                              value={unitPrice}
+                              onChange={(event) => {
+                                const priceFieldName = `items.${index}.service_prices` as const;
+                                setValue(
+                                  priceFieldName,
+                                  {
+                                    ...(watch(priceFieldName) ?? {}),
+                                    [service.id]: event.target.value
+                                  },
+                                  { shouldDirty: true, shouldValidate: true }
+                                );
+                              }}
+                            />
+                            <p className="pb-3 text-sm font-black text-ink md:text-right">
+                              {formatCurrency(subtotal)}
+                            </p>
+                          </div>
+                        );
+                      })}
+                  </div>
+                ) : null}
                 {itemErrors?.service_ids?.message ? (
                   <p className="text-xs font-semibold text-danger">
                     {itemErrors.service_ids.message}
@@ -564,13 +631,52 @@ export function OrderForm() {
               Permitir excecao de serigrafia
             </label>
             <p className="text-sm font-black text-ink">
-              Total estimado: R$ {estimatedTotal.toFixed(2).replace(".", ",")}
+              Total estimado: {formatCurrency(estimatedTotal)}
             </p>
           </div>
         </CardContent>
       </Card>
     </form>
   );
+}
+
+function servicePriceForItem(
+  item: { service_prices?: Record<string, string> },
+  service: CatalogItem
+): number {
+  const manualPrice = item.service_prices?.[String(service.id)];
+  if (manualPrice !== undefined) return parseMoneyInput(manualPrice);
+  return Number(service.price_per_unit ?? 0);
+}
+
+function buildServicePrices(
+  item: { service_prices?: Record<string, string> },
+  serviceIds: number[],
+  catalogServices: CatalogItem[]
+) {
+  return Object.fromEntries(
+    serviceIds.map((serviceId) => {
+      const service = catalogServices.find((catalogService) => catalogService.id === serviceId);
+      const rawPrice =
+        item.service_prices?.[String(serviceId)] ?? defaultMoneyInput(service?.price_per_unit);
+      const price = parseMoneyInput(rawPrice);
+      if (!Number.isFinite(price) || price < 0) {
+        throw new Error("Informe um preco valido para todos os servicos selecionados.");
+      }
+      return [serviceId, price.toFixed(2)];
+    })
+  );
+}
+
+function parseMoneyInput(value: string | number | undefined): number {
+  const normalized = String(value ?? "0").trim().replace(/\s/g, "").replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function defaultMoneyInput(value: string | number | undefined): string {
+  const parsed = Number(value ?? 0);
+  return (Number.isFinite(parsed) ? parsed : 0).toFixed(2).replace(".", ",");
 }
 
 type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & {

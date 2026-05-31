@@ -46,6 +46,7 @@ def list_deliveries(
         )
         for order in orders
         for item in order.items
+        if not item.is_cancelled
     ]
     filtered_rows = [
         row
@@ -87,6 +88,11 @@ def register_delivery(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A producao desta OS esta pausada. Retome a OS antes de registrar entrega.",
+        )
+    if item.is_cancelled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Item cancelado nao permite entrega.",
         )
     sync_item_delivery_status(item, order)
 
@@ -199,7 +205,11 @@ def _get_order_item_with_delivery_context(
         )
     )
     item = db.scalar(query)
-    if item is None or item.order.production_status == ProductionStatus.CANCELLED:
+    if (
+        item is None
+        or item.is_cancelled
+        or item.order.production_status == ProductionStatus.CANCELLED
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Item de entrega nao encontrado.",
@@ -302,9 +312,10 @@ def _mark_order_delivered_if_complete(
     user: User,
 ) -> None:
     sync_order_items_delivery_status(order)
-    if not order.items:
+    active_items = [item for item in order.items if not item.is_cancelled]
+    if not active_items:
         return
-    if not all(item.delivery_status == DeliveryStatus.DELIVERED for item in order.items):
+    if not all(item.delivery_status == DeliveryStatus.DELIVERED for item in active_items):
         return
     if order.production_status in {ProductionStatus.DELIVERED, ProductionStatus.CANCELLED}:
         return

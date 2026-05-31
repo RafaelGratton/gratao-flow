@@ -11,22 +11,28 @@ export function FinanceSummaryCards({ summary }: Props) {
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       <StatCard
-        label="Faturado no periodo"
+        label="Cobrado do cliente"
         value={formatCurrency(summary.totalInvoiced)}
-        detail="OS criadas no intervalo selecionado."
+        detail="Valor de venda das OS no periodo."
         icon={<CircleDollarSign size={20} />}
       />
       <StatCard
-        label="Recebido no periodo"
+        label="Recebido de clientes"
         value={formatCurrency(summary.totalReceived)}
         detail="Pagamentos de clientes realizados no intervalo."
         icon={<WalletCards size={20} />}
       />
       <StatCard
-        label="A receber"
+        label="Saldo a receber"
         value={formatCurrency(summary.totalPending)}
-        detail="Saldo atual das OS faturadas no periodo."
+        detail="Pendente das OS faturadas no periodo."
         icon={<Banknote size={20} />}
+      />
+      <StatCard
+        label="Custo terceirizado"
+        value={formatCurrency(summary.outsourcingCostTotal)}
+        detail="Repasses pagos e pendentes vinculados as OS."
+        icon={<HandCoins size={20} />}
       />
       <StatCard
         label="Funcionarios pagos"
@@ -59,9 +65,9 @@ export function FinanceSummaryCards({ summary }: Props) {
         icon={<TrendingDown size={20} />}
       />
       <StatCard
-        label="Resultado projetado"
+        label="Resultado estimado"
         value={formatCurrency(summary.projectedResult)}
-        detail="Faturado menos valores pendentes de pagamento."
+        detail="Cobrado do cliente menos custos conhecidos."
         icon={<TrendingUp size={20} />}
       />
     </div>

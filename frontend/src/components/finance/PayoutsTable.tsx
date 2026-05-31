@@ -70,11 +70,12 @@ export function PayoutsTable({ rows, loading, onPaid, onError }: Props) {
                     "OS",
                     "Cliente",
                     "Terceirizado",
-                    "Produto",
-                    "Quantidade enviada",
-                    "Repasse total",
-                    "Lucro",
-                    "Status repasse",
+                    "Item / servico",
+                    "Quantidade",
+                    "Custo unitario",
+                    "Valor devido",
+                    "Status terceirizacao",
+                    "Status pagamento",
                     "Pago em",
                     "Acoes"
                   ].map((heading) => (
@@ -99,10 +100,13 @@ export function PayoutsTable({ rows, loading, onPaid, onError }: Props) {
                         {row.outsourcing.quantity_sent}
                       </td>
                       <td className="border-b border-line/70 px-4 py-4 font-bold text-ink">
+                        {formatCurrency(row.outsourcing.outsourcer_unit_price)}
+                      </td>
+                      <td className="border-b border-line/70 px-4 py-4 font-bold text-ink">
                         {formatCurrency(row.outsourcing.outsourcer_total)}
                       </td>
-                      <td className="border-b border-line/70 px-4 py-4 font-bold text-success">
-                        {formatCurrency(row.outsourcing.profit_total)}
+                      <td className="border-b border-line/70 px-4 py-4 text-muted">
+                        {statusLabels[row.outsourcing.status] ?? row.outsourcing.status}
                       </td>
                       <td className="border-b border-line/70 px-4 py-4">
                         <StatusBadge label={pending ? "Pendente" : "Pago"} status={pending ? "warning" : "done"} />
@@ -137,5 +141,15 @@ export function PayoutsTable({ rows, loading, onPaid, onError }: Props) {
 
 function outsourcingItemName(row: PayoutRow) {
   const item = row.order.items.find((orderItem) => orderItem.id === row.outsourcing.order_item_id);
-  return item?.product.name ?? "-";
+  if (!item) return "-";
+  const services = item.services.map((service) => service.service.name).join(", ");
+  return services ? `${item.product.name} / ${services}` : item.product.name;
 }
+
+const statusLabels: Record<string, string> = {
+  sent: "Enviada",
+  partially_returned: "Retorno parcial",
+  returned: "Retornada",
+  delivered_direct: "Direto ao cliente",
+  cancelled: "Cancelada"
+};

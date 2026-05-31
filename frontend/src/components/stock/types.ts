@@ -11,6 +11,7 @@ export type CatalogProduct = {
 export type CatalogSize = {
   id: number;
   label: string;
+  is_active?: boolean;
 };
 
 export type StockMovementType =

@@ -97,15 +97,20 @@ export function OrderTable({ orders, loading, onCancel }: OrderTableProps) {
                     </td>
                     <td className="border-b border-line/70 px-4 py-4 text-muted">
                       <div className="max-w-[280px] space-y-1">
-                        {order.items.slice(0, 3).map((item) => (
+                        {activeItems(order).slice(0, 3).map((item) => (
                           <p key={item.id} className="font-semibold text-ink">
                             {item.quantity_requested}x {item.product.name} {item.size.label}
                             {item.color ? ` / ${item.color}` : ""}
                           </p>
                         ))}
-                        {order.items.length > 3 ? (
+                        {activeItems(order).length > 3 ? (
                           <p className="text-xs font-bold text-muted">
-                            +{order.items.length - 3} item(ns)
+                            +{activeItems(order).length - 3} item(ns)
+                          </p>
+                        ) : null}
+                        {cancelledCount(order) > 0 ? (
+                          <p className="text-xs font-bold text-danger">
+                            {cancelledCount(order)} cancelado(s)
                           </p>
                         ) : null}
                       </div>
@@ -165,4 +170,12 @@ export function OrderTable({ orders, loading, onCancel }: OrderTableProps) {
       </CardContent>
     </Card>
   );
+}
+
+function activeItems(order: OrderSummary) {
+  return order.items.filter((item) => !item.is_cancelled);
+}
+
+function cancelledCount(order: OrderSummary) {
+  return order.items.length - activeItems(order).length;
 }

@@ -3,6 +3,7 @@
 import { CheckCircle2, Scissors, Shirt, Stamp, Truck } from "lucide-react";
 import type { OrderDetails, OrderItem } from "@/components/orders/types";
 import { flowStageOptions, itemFlowLabel, itemStageDone, missingCut } from "@/components/production/helpers";
+import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils";
 
 type ProductionFlowProps = {
@@ -19,6 +20,7 @@ export function ProductionFlow({ order }: ProductionFlowProps) {
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-accent-dark">
                 Item {index + 1}
               </p>
+              {item.is_cancelled ? <Badge tone="danger">Cancelado</Badge> : null}
               <h3 className="mt-1 text-base font-black text-ink">
                 {item.product.name} tamanho {item.size.label}
               </h3>

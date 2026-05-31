@@ -44,6 +44,7 @@ from app.schemas.order import (
     OperationalEventRegister,
     OperationalHistoryEntry,
     OrderCreate,
+    OrderItemCancel,
     OrderRead,
     OrderSummary,
     OrderUpdate,
@@ -145,7 +146,7 @@ def create_order(
         order.items.append(order_item)
 
         for service in services:
-            unit_price = _money(service.price_per_unit)
+            unit_price = _service_unit_price(item_payload, service)
             total_price = _money(unit_price * item_payload.quantity_requested)
             total_amount += total_price
             order.services.append(
@@ -181,6 +182,7 @@ def list_orders(db: Annotated[Session, Depends(get_db)]) -> list[Order]:
         .where(Order.production_status != ProductionStatus.CANCELLED)
         .options(
             selectinload(Order.client),
+            selectinload(Order.client_order_group),
             selectinload(Order.product),
             selectinload(Order.size),
             selectinload(Order.items).selectinload(OrderItem.product),
@@ -189,6 +191,7 @@ def list_orders(db: Annotated[Session, Depends(get_db)]) -> list[Order]:
             selectinload(Order.items)
             .selectinload(OrderItem.services)
             .selectinload(OrderItemService.service),
+            selectinload(Order.outsourcings),
         )
         .order_by(Order.created_at.desc())
     )
@@ -210,17 +213,91 @@ def update_order(
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
 
     if _order_has_movements(order):
+        _ensure_order_group_client_matches(order, payload.client_id)
         _apply_safe_order_update(db, order, payload)
         db.commit()
         return _get_order_or_404(db, order.id)
 
     items_with_services = _ensure_order_references_exist(db, payload)
+    _ensure_order_group_client_matches(order, payload.client_id)
     order.client_id = payload.client_id
     order.allow_printing_exception = payload.allow_printing_exception
     order.notes = payload.notes
     _replace_order_items(order, items_with_services)
     _sync_order_snapshot_from_items(order)
     _refresh_financials(order)
+
+    db.commit()
+    return _get_order_or_404(db, order.id)
+
+
+@router.post(
+    "/{order_id}/items/{item_id}/cancel",
+    response_model=OrderRead,
+    status_code=201,
+)
+def cancel_order_item(
+    order_id: int,
+    item_id: int,
+    payload: OrderItemCancel,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> Order:
+    order = _get_order_or_404(db, order_id, for_update=True)
+    _ensure_order_is_not_in_closed_weekly_closing(db, order)
+    _ensure_order_is_open_for_production_control(order)
+    item = _get_order_item_or_404(order, item_id)
+
+    if item.is_cancelled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este item ja esta cancelado.",
+        )
+    active_items = _active_order_items(order)
+    if len(active_items) <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nao e possivel cancelar o ultimo item ativo. Cancele a OS inteira.",
+        )
+    if not _item_has_movements(order, item):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Item sem movimento deve ser removido pela edicao da OS.",
+        )
+    if item.quantity_delivered >= item.quantity_requested:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nao e possivel cancelar item totalmente entregue sem fluxo de estorno.",
+        )
+
+    committed_cut_quantity = _committed_cut_piece_quantity(order, item)
+    if item.quantity_cut > committed_cut_quantity:
+        returnable_quantity = item.quantity_cut - committed_cut_quantity
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Este item possui pecas destinadas sem processamento. "
+                f"Devolva {returnable_quantity} peca(s) ao estoque antes de cancelar."
+            ),
+        )
+
+    item.is_cancelled = True
+    item.cancelled_at = _utcnow()
+    item.cancel_reason = payload.reason
+    _add_production_event(
+        db,
+        order=order,
+        item=item,
+        event_type=ProductionEventType.ORDER_ITEM_CANCELLED,
+        stage="item_cancellation",
+        quantity=item.quantity_requested,
+        reason=payload.reason,
+        notes=payload.reason,
+        user=user,
+    )
+    _sync_order_totals(order)
+    sync_order_items_delivery_status(order)
+    _sync_order_status_after_quantity_update(db, order)
 
     db.commit()
     return _get_order_or_404(db, order.id)
@@ -469,6 +546,7 @@ def register_item_cut(
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
     _ensure_production_operation_allowed(order)
     item = _get_order_item_or_404(order, item_id)
+    _ensure_item_is_active(item)
 
     _register_cut_entry(db, order, item, payload.quantity, payload.notes, user)
 
@@ -492,6 +570,7 @@ def allocate_cut_pieces_to_item(
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
     _ensure_production_operation_allowed(order)
     item = _get_order_item_or_404(order, item_id)
+    _ensure_item_is_active(item)
     remaining_needed = item.quantity_requested - item.quantity_cut
     if payload.quantity > remaining_needed:
         raise HTTPException(
@@ -569,6 +648,7 @@ def return_cut_pieces_to_stock(
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
     _ensure_order_is_open_for_production_control(order)
     item = _get_order_item_or_404(order, item_id)
+    _ensure_item_is_active(item)
     committed_quantity = _committed_cut_piece_quantity(order, item)
     returnable_quantity = item.quantity_cut - committed_quantity
     if payload.quantity > returnable_quantity:
@@ -628,6 +708,7 @@ def register_item_print(
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
     _ensure_production_operation_allowed(order)
     item = _get_order_item_or_404(order, item_id)
+    _ensure_item_is_active(item)
     _validate_item_print_registration(order, item, payload)
 
     before_quantity = item.quantity_printed
@@ -668,6 +749,7 @@ def register_item_sewing(
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
     _ensure_production_operation_allowed(order)
     item = _get_order_item_or_404(order, item_id)
+    _ensure_item_is_active(item)
     _validate_item_sewing_registration(item, payload)
 
     before_quantity = item.quantity_sewn
@@ -722,10 +804,15 @@ def create_order_outsourcing(
     outsourcer_total = _money(outsourcer_unit_price * payload.quantity_sent)
     profit_total = _money(customer_total - outsourcer_total)
 
+    previous_outsourced_quantity = sum(
+        existing.quantity_sent
+        for existing in order.outsourcings
+        if existing.order_item_id == item.id
+        and existing.status != OutsourcingStatus.CANCELLED
+    )
+
     outsourcing_status = OutsourcingStatus.SENT
     outsourcing = OrderOutsourcing(
-        order_id=order.id,
-        order_item_id=item.id,
         outsourcer_id=payload.outsourcer_id,
         quantity_sent=payload.quantity_sent,
         quantity_returned=0,
@@ -740,13 +827,8 @@ def create_order_outsourcing(
         payout_status=PayoutStatus.PENDING,
         notes=payload.notes,
     )
-    db.add(outsourcing)
-    previous_outsourced_quantity = sum(
-        existing.quantity_sent
-        for existing in order.outsourcings
-        if existing.order_item_id == item.id
-        and existing.status != OutsourcingStatus.CANCELLED
-    )
+    outsourcing.order_item = item
+    order.outsourcings.append(outsourcing)
     _add_production_event(
         db,
         order=order,
@@ -760,6 +842,7 @@ def create_order_outsourcing(
         after_quantity=previous_outsourced_quantity + payload.quantity_sent,
     )
 
+    _sync_order_totals(order)
     _sync_order_production_snapshot(db, order, payload.quantity_sent, user)
 
     db.commit()
@@ -896,6 +979,7 @@ def register_item_loss(
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
     _ensure_production_operation_allowed(order)
     item = _get_order_item_or_404(order, item_id)
+    _ensure_item_is_active(item)
 
     _add_production_event(
         db,
@@ -928,6 +1012,7 @@ def register_item_rework(
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
     _ensure_production_operation_allowed(order)
     item = _get_order_item_or_404(order, item_id)
+    _ensure_item_is_active(item)
 
     _add_production_event(
         db,
@@ -960,6 +1045,7 @@ def register_item_adjustment(
     _ensure_order_is_not_in_closed_weekly_closing(db, order)
     _ensure_production_operation_allowed(order)
     item = _get_order_item_or_404(order, item_id)
+    _ensure_item_is_active(item)
     if payload.stage == "cut":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1263,6 +1349,7 @@ def _production_event_label(event: ProductionEvent) -> str:
         ProductionEventType.OUTSOURCING_RETURNED: "Retorno de terceirizacao registrado",
         ProductionEventType.OUTSOURCING_PAYOUT_PAID: "Pagamento de terceirizacao registrado",
         ProductionEventType.DELIVERY_REGISTERED: "Entrega registrada",
+        ProductionEventType.ORDER_ITEM_CANCELLED: "Item cancelado",
         ProductionEventType.LOSS_REGISTERED: "Perda registrada",
         ProductionEventType.REWORK_REGISTERED: "Retrabalho registrado",
         ProductionEventType.ADJUSTMENT_REGISTERED: "Ajuste operacional registrado",
@@ -1289,30 +1376,28 @@ def _order_has_movements(order: Order) -> bool:
 
 
 def _apply_safe_order_update(db: Session, order: Order, payload: OrderUpdate) -> None:
+    items_with_services = _ensure_order_references_exist(db, payload)
     existing_items = {item.id: item for item in order.items}
-    payload_ids = [item.id for item in payload.items]
-    if any(item_id is None for item_id in payload_ids):
+    existing_active_items = {item.id: item for item in _active_order_items(order)}
+    payload_existing_ids = [item.id for item in payload.items if item.id is not None]
+    unknown_ids = [item_id for item_id in payload_existing_ids if item_id not in existing_items]
+    if unknown_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item da OS invalido.")
+    cancelled_payload_ids = [
+        item_id
+        for item_id in payload_existing_ids
+        if existing_items[item_id].is_cancelled
+    ]
+    if cancelled_payload_ids:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "Esta OS ja possui movimentacoes. Nao e possivel adicionar itens; "
-                "apenas cor e observacoes podem ser alteradas."
-            ),
-        )
-    if set(payload_ids) != set(existing_items):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "Esta OS ja possui movimentacoes. Nao e possivel remover ou trocar itens; "
-                "apenas cor e observacoes podem ser alteradas."
-            ),
+            detail="Itens cancelados nao podem ser editados. Eles permanecem apenas como historico.",
         )
     if payload.client_id != order.client_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                "Esta OS ja possui movimentacoes. Nao e possivel alterar o cliente; "
-                "apenas cor e observacoes podem ser alteradas."
+                "Esta OS ja possui movimentacoes ou pagamentos. Nao e possivel alterar o cliente."
             ),
         )
     if payload.allow_printing_exception != order.allow_printing_exception:
@@ -1324,47 +1409,87 @@ def _apply_safe_order_update(db: Session, order: Order, payload: OrderUpdate) ->
             ),
         )
 
-    for item_payload in payload.items:
+    omitted_active_items = [
+        item
+        for item_id, item in existing_active_items.items()
+        if item_id not in payload_existing_ids
+    ]
+    for item in omitted_active_items:
+        if _item_has_movements(order, item):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Item com movimento nao pode ser removido fisicamente. "
+                    "Use o cancelamento controlado do item."
+                ),
+            )
+        order.items.remove(item)
+
+    for item_payload, services in items_with_services:
+        if item_payload.id is None:
+            _append_new_order_item(order, item_payload, services)
+            continue
+
         item = existing_items[item_payload.id]
         current_service_ids = [item_service.service_id for item_service in item.services]
-        if (
-            item_payload.product_id != item.product_id
-            or item_payload.size_id != item.size_id
-            or item_payload.sewing_mode != item.sewing_mode
-            or item_payload.service_ids != current_service_ids
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    "Esta OS ja possui movimentacoes. Campos de produto, tamanho, "
-                    "servicos e producao final nao podem ser alterados."
-                ),
-            )
-        if item_payload.color != item.color and item.quantity_cut > 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    "Nao e possivel alterar a cor de um item que possui pecas "
-                    "cortadas destinadas. Devolva o saldo antes de alterar a cor."
-                ),
-            )
-        movement_floor = _item_quantity_movement_floor(order, item)
-        if item_payload.quantity_requested < movement_floor:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    "Nao e possivel reduzir a quantidade abaixo do que ja foi produzido/entregue."
-                ),
-            )
+        normalized_sewing_mode = _normalized_sewing_mode(item_payload, services)
+        item_has_movements = _item_has_movements(order, item)
+        if item_has_movements:
+            if item_payload.product_id != item.product_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Nao e possivel trocar produto/modelo de item ja movimentado.",
+                )
+            if item_payload.size_id != item.size_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Nao e possivel trocar tamanho de item ja movimentado.",
+                )
+            if normalized_sewing_mode != item.sewing_mode:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Nao e possivel trocar a producao final de item ja movimentado.",
+                )
+            if item_payload.service_ids != current_service_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Nao e possivel trocar servicos de item ja movimentado.",
+                )
+            _sync_existing_item_service_prices(item, item_payload)
+            if item_payload.color != item.color and item.quantity_cut > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Nao e possivel alterar a cor de um item que possui pecas "
+                        "cortadas destinadas. Devolva o saldo antes de alterar a cor."
+                    ),
+                )
+            movement_floor = _item_quantity_movement_floor(order, item)
+            if item_payload.quantity_requested < movement_floor:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Nao e possivel reduzir a quantidade abaixo do que ja foi produzido, "
+                        "destinado, terceirizado ou entregue."
+                    ),
+                )
+        else:
+            item.product_id = item_payload.product_id
+            item.size_id = item_payload.size_id
+            item.sewing_mode = normalized_sewing_mode
+            _replace_item_services(item, item_payload, services)
+
         item.quantity_requested = item_payload.quantity_requested
         item.color = item_payload.color
         item.operational_priority = item_payload.operational_priority
         item.notes = item_payload.notes
 
-    first_item = order.items[0]
-    order.product_id = first_item.product_id
-    order.size_id = first_item.size_id
-    order.color = first_item.color
+    if not _active_order_items(order):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A OS precisa manter pelo menos um item ativo.",
+        )
+
     order.notes = payload.notes
     _sync_order_totals(order)
     sync_order_items_delivery_status(order)
@@ -1392,6 +1517,72 @@ def _item_quantity_movement_floor(order: Order, item: OrderItem) -> int:
     )
 
 
+def _active_order_items(order: Order) -> list[OrderItem]:
+    return [item for item in order.items if not item.is_cancelled]
+
+
+def _item_has_movements(order: Order, item: OrderItem) -> bool:
+    return (
+        item.quantity_cut > 0
+        or item.quantity_printed > 0
+        or item.quantity_sewn > 0
+        or item.quantity_delivered > 0
+        or item.delivered_at is not None
+        or any(event.order_item_id == item.id for event in order.production_events)
+        or any(
+            outsourcing.order_item_id == item.id
+            and outsourcing.status != OutsourcingStatus.CANCELLED
+            for outsourcing in order.outsourcings
+        )
+    )
+
+
+def _append_new_order_item(order: Order, item_payload: object, services: list[Service]) -> None:
+    order_item = OrderItem(
+        product_id=item_payload.product_id,
+        size_id=item_payload.size_id,
+        color=item_payload.color,
+        quantity_requested=item_payload.quantity_requested,
+        quantity_cut=0,
+        quantity_printed=0,
+        quantity_sewn=0,
+        quantity_delivered=0,
+        operational_priority=item_payload.operational_priority,
+        sewing_mode=_normalized_sewing_mode(item_payload, services),
+        notes=item_payload.notes,
+        is_cancelled=False,
+    )
+    order.items.append(order_item)
+    _replace_item_services(order_item, item_payload, services)
+
+
+def _replace_item_services(
+    item: OrderItem,
+    item_payload: object,
+    services: list[Service],
+) -> None:
+    item.services.clear()
+    for service in services:
+        unit_price = _service_unit_price(item_payload, service)
+        total_price = _money(unit_price * item_payload.quantity_requested)
+        item.services.append(
+            OrderItemService(
+                service_id=service.id,
+                service=service,
+                quantity=item_payload.quantity_requested,
+                unit_price=unit_price,
+                total_price=total_price,
+            )
+        )
+
+
+def _sync_existing_item_service_prices(item: OrderItem, item_payload: object) -> None:
+    service_prices = getattr(item_payload, "service_prices", None) or {}
+    for item_service in item.services:
+        if item_service.service_id in service_prices:
+            item_service.unit_price = _money(service_prices[item_service.service_id])
+
+
 def _replace_order_items(
     order: Order,
     items_with_services: list[tuple[object, list[Service]]],
@@ -1401,34 +1592,14 @@ def _replace_order_items(
 
     total_amount = Decimal("0.00")
     for item_payload, services in items_with_services:
-        order_item = OrderItem(
-            product_id=item_payload.product_id,
-            size_id=item_payload.size_id,
-            color=item_payload.color,
-            quantity_requested=item_payload.quantity_requested,
-            quantity_cut=0,
-            quantity_printed=0,
-            quantity_sewn=0,
-            operational_priority=item_payload.operational_priority,
-            sewing_mode=_normalized_sewing_mode(item_payload, services),
-            notes=item_payload.notes,
-        )
-        order.items.append(order_item)
+        _append_new_order_item(order, item_payload, services)
 
         for service in services:
-            unit_price = _money(service.price_per_unit)
+            unit_price = _service_unit_price(item_payload, service)
             total_price = _money(unit_price * item_payload.quantity_requested)
             total_amount += total_price
             order.services.append(
                 OrderService(
-                    service_id=service.id,
-                    quantity=item_payload.quantity_requested,
-                    unit_price=unit_price,
-                    total_price=total_price,
-                )
-            )
-            order_item.services.append(
-                OrderItemService(
                     service_id=service.id,
                     quantity=item_payload.quantity_requested,
                     unit_price=unit_price,
@@ -1440,17 +1611,23 @@ def _replace_order_items(
 
 
 def _sync_order_snapshot_from_items(order: Order) -> None:
-    first_item = order.items[0]
+    active_items = _active_order_items(order)
+    if not active_items:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A OS precisa manter pelo menos um item ativo.",
+        )
+    first_item = active_items[0]
     order.product_id = first_item.product_id
     order.size_id = first_item.size_id
     order.color = first_item.color
-    order.quantity_requested = sum(item.quantity_requested for item in order.items)
-    order.quantity_cut = sum(item.quantity_cut for item in order.items)
-    order.quantity_printed = sum(item.quantity_printed for item in order.items)
-    order.quantity_sewn = sum(item.quantity_sewn for item in order.items)
+    order.quantity_requested = sum(item.quantity_requested for item in active_items)
+    order.quantity_cut = sum(item.quantity_cut for item in active_items)
+    order.quantity_printed = sum(item.quantity_printed for item in active_items)
+    order.quantity_sewn = sum(item.quantity_sewn for item in active_items)
     order.quantity_extra = sum(
         max(item.quantity_cut - item.quantity_requested, 0)
-        for item in order.items
+        for item in active_items
     )
 
 
@@ -1459,7 +1636,7 @@ def _sync_order_totals(order: Order) -> None:
 
     total_amount = Decimal("0.00")
     service_snapshots: list[tuple[int, int, Decimal, Decimal]] = []
-    for item in order.items:
+    for item in _active_order_items(order):
         for item_service in item.services:
             item_service.quantity = item.quantity_requested
             item_service.total_price = _money(
@@ -1498,8 +1675,14 @@ def _sync_order_totals(order: Order) -> None:
                 )
             )
 
+    total_amount += _active_outsourcing_revenue_total(order)
     order.total_amount = _money(total_amount)
     _refresh_financials(order)
+
+
+def _service_unit_price(item_payload: object, service: Service) -> Decimal:
+    service_prices = getattr(item_payload, "service_prices", None) or {}
+    return _money(service_prices.get(service.id, service.price_per_unit))
 
 
 def _ensure_order_references_exist(
@@ -1588,6 +1771,7 @@ def _get_order_or_404(db: Session, order_id: int, *, for_update: bool = False) -
         .where(Order.id == order_id)
         .options(
             selectinload(Order.client),
+            selectinload(Order.client_order_group),
             selectinload(Order.product),
             selectinload(Order.size),
             selectinload(Order.items).selectinload(OrderItem.product),
@@ -1611,12 +1795,13 @@ def _get_order_or_404(db: Session, order_id: int, *, for_update: bool = False) -
 
 
 def _get_single_item_for_legacy_operation(order: Order) -> OrderItem:
-    if len(order.items) != 1:
+    active_items = _active_order_items(order)
+    if len(active_items) != 1:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=LEGACY_MULTI_ITEM_OPERATION_MESSAGE,
         )
-    return order.items[0]
+    return active_items[0]
 
 
 def _register_cut_entry(
@@ -1662,6 +1847,14 @@ def _get_order_item_or_404(order: Order, item_id: int) -> OrderItem:
     )
 
 
+def _ensure_item_is_active(item: OrderItem) -> None:
+    if item.is_cancelled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Item cancelado nao permite novas acoes produtivas.",
+        )
+
+
 def _refresh_financials(order: Order) -> None:
     amount_paid = _money(sum((payment.amount for payment in order.payments), Decimal("0.00")))
     order.amount_paid = amount_paid
@@ -1673,6 +1866,19 @@ def _refresh_financials(order: Order) -> None:
         order.financial_status = FinancialStatus.PARTIAL
     else:
         order.financial_status = FinancialStatus.PAID
+
+
+def _active_outsourcing_revenue_total(order: Order) -> Decimal:
+    return _money(
+        sum(
+            (
+                outsourcing.customer_total
+                for outsourcing in order.outsourcings
+                if outsourcing.status != OutsourcingStatus.CANCELLED
+            ),
+            Decimal("0.00"),
+        )
+    )
 
 
 def _ensure_order_is_not_in_closed_weekly_closing(db: Session, order: Order) -> None:
@@ -1790,7 +1996,7 @@ def _validate_outsourcing_stage(order: Order) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Outsourcing is only allowed when production status is cut_done or print_done",
         )
-    if not any(_item_is_ready_for_outsourcing(item) for item in order.items):
+    if not any(_item_is_ready_for_outsourcing(item) for item in _active_order_items(order)):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Nenhum item desta OS esta pronto para terceirizacao.",
@@ -1799,6 +2005,7 @@ def _validate_outsourcing_stage(order: Order) -> None:
 
 def _validate_outsourcing_item(order: Order, order_item_id: int) -> OrderItem:
     item = _get_order_item_or_404(order, order_item_id)
+    _ensure_item_is_active(item)
     if item.sewing_mode != SewingMode.OUTSOURCED:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1833,7 +2040,7 @@ def _validate_outsourcer_exists(db: Session, outsourcer_id: int | None) -> None:
 def _available_outsourcing_quantity(order: Order) -> int:
     max_quantity = sum(
         _available_item_outsourcing_quantity(item)
-        for item in order.items
+        for item in _active_order_items(order)
         if _item_is_ready_for_outsourcing(item)
     )
     already_outsourced = sum(
@@ -1858,6 +2065,17 @@ def _available_outsourcing_quantity_for_item(order: Order, item: OrderItem) -> i
 def _ensure_order_exists(db: Session, order_id: int) -> None:
     if db.get(Order, order_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+
+def _ensure_order_group_client_matches(order: Order, next_client_id: int) -> None:
+    if order.client_order_group_id is None:
+        return
+    if order.client_order_group and order.client_order_group.client_id == next_client_id:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Nao e possivel alterar o cliente de uma OS vinculada a Pedido de Cliente.",
+    )
 
 
 def _get_order_outsourcing_or_404(
@@ -1943,12 +2161,13 @@ def _sync_order_production_snapshot(
     quantity: int | None,
     user: User | None = None,
 ) -> None:
-    order.quantity_cut = sum(item.quantity_cut for item in order.items)
-    order.quantity_printed = sum(item.quantity_printed for item in order.items)
-    order.quantity_sewn = sum(item.quantity_sewn for item in order.items)
+    active_items = _active_order_items(order)
+    order.quantity_cut = sum(item.quantity_cut for item in active_items)
+    order.quantity_printed = sum(item.quantity_printed for item in active_items)
+    order.quantity_sewn = sum(item.quantity_sewn for item in active_items)
     order.quantity_extra = sum(
         max(item.quantity_cut - item.quantity_requested, 0)
-        for item in order.items
+        for item in active_items
     )
 
     next_status = _derive_order_status_from_items(order)
@@ -1956,27 +2175,28 @@ def _sync_order_production_snapshot(
 
 
 def _derive_order_status_from_items(order: Order) -> ProductionStatus:
-    if not order.items:
+    active_items = _active_order_items(order)
+    if not active_items:
         return order.production_status
     if order.production_status == ProductionStatus.CANCELLED:
         return ProductionStatus.CANCELLED
-    if all(item.delivery_status == DeliveryStatus.DELIVERED for item in order.items):
+    if all(item.delivery_status == DeliveryStatus.DELIVERED for item in active_items):
         return ProductionStatus.DELIVERED
-    if len(order.items) == 1:
-        return _derive_single_item_status(order, order.items[0])
+    if len(active_items) == 1:
+        return _derive_single_item_status(order, active_items[0])
 
     complete_items = [
-        item for item in order.items
+        item for item in active_items
         if _item_is_complete(item, order)
     ]
-    if len(complete_items) == len(order.items):
+    if len(complete_items) == len(active_items):
         return ProductionStatus.READY
     if complete_items:
         return ProductionStatus.PARTIAL_READY
 
     item_statuses = {
         _derive_single_item_status(order, item)
-        for item in order.items
+        for item in active_items
     }
     active_statuses = {
         item_status
@@ -2030,6 +2250,8 @@ def _item_is_complete(item: OrderItem, order: Order) -> bool:
 
 
 def _item_is_ready_for_outsourcing(item: OrderItem) -> bool:
+    if item.is_cancelled:
+        return False
     if item.sewing_mode != SewingMode.OUTSOURCED:
         return False
     if item.quantity_cut < item.quantity_requested:

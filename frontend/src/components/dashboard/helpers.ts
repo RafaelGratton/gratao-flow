@@ -1,6 +1,7 @@
 import type { DeliveryItem } from "@/components/deliveries/types";
 import type { OperationalPriority, OrderItem } from "@/components/orders/types";
 import {
+  activeOrderItems,
   buildOperationalQueueItem,
   type OperationalQueueItem
 } from "@/components/production/helpers";
@@ -23,7 +24,7 @@ const priorityRank: Record<OperationalPriority, number> = {
 
 export function buildDashboardModel(source: DashboardSource): DashboardModel {
   const rows = source.activeOrders.flatMap((order) =>
-    order.items.map((item, index) => buildOperationalQueueItem(order, item, index + 1))
+    activeOrderItems(order).map((item, index) => buildOperationalQueueItem(order, item, index + 1))
   );
   const freePieces = source.stockItems.filter((item) => item.category === "piece");
   const urgentOrderIds = uniqueOrderIds(
@@ -296,8 +297,8 @@ function buildPausedOrders(orders: DashboardSource["activeOrders"]) {
     .filter((order) => order.production_paused)
     .map((order) => ({
       order,
-      allocatedPieces: order.items.reduce((total, item) => total + item.quantity_cut, 0),
-      items: order.items.length
+      allocatedPieces: activeOrderItems(order).reduce((total, item) => total + item.quantity_cut, 0),
+      items: activeOrderItems(order).length
     }))
     .sort((a, b) => b.allocatedPieces - a.allocatedPieces || a.order.id - b.order.id);
 }

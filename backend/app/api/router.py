@@ -5,6 +5,7 @@ from app.api.routes import (
     clients,
     deliveries,
     employees,
+    order_groups,
     orders,
     outsourcers,
     products,
@@ -28,6 +29,7 @@ api_router.include_router(settings.router, prefix="/settings", tags=["settings"]
 api_router.include_router(outsourcers.router, prefix="/outsourcers", tags=["outsourcers"])
 api_router.include_router(employees.router, prefix="/employees", tags=["employees"])
 api_router.include_router(work_logs.router, prefix="/work-logs", tags=["work-logs"])
+api_router.include_router(order_groups.router, prefix="/order-groups", tags=["order-groups"])
 api_router.include_router(orders.router, prefix="/orders", tags=["orders"])
 api_router.include_router(stock.router, prefix="/stock", tags=["stock"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])

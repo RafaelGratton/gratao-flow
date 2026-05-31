@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/format";
+import { formatTime24, isValidTime24, Time24Input } from "./Time24Input";
 import type { Employee, WorkLog, WorkPaymentMode } from "./types";
 
 type Props = {
@@ -23,7 +24,7 @@ const paymentModeLabels: Record<WorkPaymentMode, string> = {
 function hoursBetween(start: string | null, end: string) {
   if (!start || !end) return 0;
   const [startHour, startMinute] = start.slice(0, 5).split(":").map(Number);
-  const [endHour, endMinute] = end.split(":").map(Number);
+  const [endHour, endMinute] = end.slice(0, 5).split(":").map(Number);
   const startTotal = startHour * 60 + startMinute;
   const endTotal = endHour * 60 + endMinute;
   if (!Number.isFinite(startTotal) || !Number.isFinite(endTotal) || endTotal <= startTotal) return 0;
@@ -100,6 +101,10 @@ export function WorkLogExitModal({ workLog, employee, onClose, onSaved }: Props)
       setError("Informe a hora de saida.");
       return;
     }
+    if (!isValidTime24(clockOut)) {
+      setError("Informe a saida no formato 24h HH:mm, por exemplo 16:00.");
+      return;
+    }
     if (preview.grossHours <= 0) {
       setError("A hora de saida deve ser maior que a hora de entrada.");
       return;
@@ -133,7 +138,7 @@ export function WorkLogExitModal({ workLog, employee, onClose, onSaved }: Props)
         <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent-dark">
-              {employee.name} / Entrada {workLog.clock_in?.slice(0, 5)}
+              {employee.name} / Entrada {formatTime24(workLog.clock_in)}
             </p>
             <h2 className="mt-1 text-xl font-black text-ink">Registrar saida</h2>
           </div>
@@ -154,7 +159,7 @@ export function WorkLogExitModal({ workLog, employee, onClose, onSaved }: Props)
             </div>
           ) : null}
           <div className="grid gap-4 md:grid-cols-3">
-            <Input label="Saida" type="time" value={clockOut} onChange={(event) => setClockOut(event.target.value)} />
+            <Time24Input label="Saida" value={clockOut} onChange={setClockOut} />
             <Input
               label="Intervalo"
               type="number"

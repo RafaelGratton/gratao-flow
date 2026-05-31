@@ -20,6 +20,11 @@ MoneyDecimal = Annotated[
     Field(ge=Decimal("0"), max_digits=10, decimal_places=2),
 ]
 
+SignedMoneyDecimal = Annotated[
+    Decimal,
+    Field(max_digits=10, decimal_places=2),
+]
+
 
 class ReportClient(BaseModel):
     id: int
@@ -67,7 +72,11 @@ class ReportItem(BaseModel):
     quantity_delivered: int
     delivery_status: DeliveryStatus
     sewing_mode: SewingMode | None
+    is_cancelled: bool = False
+    cancelled_at: datetime | None = None
+    cancel_reason: str | None = None
     services: list[ReportService]
+    outsourcing_services: list[ReportService] = Field(default_factory=list)
 
 
 class InternalReportPayment(BaseModel):
@@ -91,6 +100,14 @@ class ClientReportPayment(BaseModel):
         return f"{value:.2f}"
 
 
+class GroupClientReportPayment(ClientReportPayment):
+    order_id: int
+
+
+class GroupInternalReportPayment(InternalReportPayment):
+    order_id: int
+
+
 class InternalReportProductionEvent(BaseModel):
     order_item_id: int | None
     event_type: ProductionEventType
@@ -99,6 +116,10 @@ class InternalReportProductionEvent(BaseModel):
     from_status: ProductionStatus | None
     to_status: ProductionStatus | None
     created_at: datetime
+
+
+class GroupInternalReportProductionEvent(InternalReportProductionEvent):
+    order_id: int
 
 
 class InternalReportOutsourcing(BaseModel):
@@ -110,7 +131,7 @@ class InternalReportOutsourcing(BaseModel):
     outsourcer_unit_price: MoneyDecimal
     customer_total: MoneyDecimal
     outsourcer_total: MoneyDecimal
-    profit_total: MoneyDecimal
+    profit_total: SignedMoneyDecimal
     status: OutsourcingStatus
     payout_status: PayoutStatus
 
@@ -120,6 +141,102 @@ class InternalReportOutsourcing(BaseModel):
         "customer_total",
         "outsourcer_total",
         "profit_total",
+    )
+    def serialize_money(self, value: Decimal) -> str:
+        return f"{value:.2f}"
+
+
+class GroupInternalReportOutsourcing(InternalReportOutsourcing):
+    order_id: int
+
+
+class ClientOrderGroupReportOrder(BaseModel):
+    order_id: int
+    production_status: str
+    quantity: int
+    total_amount: MoneyDecimal
+    amount_paid: MoneyDecimal
+    amount_due: MoneyDecimal
+    items: list[ReportItem]
+
+    @field_serializer("total_amount", "amount_paid", "amount_due")
+    def serialize_money(self, value: Decimal) -> str:
+        return f"{value:.2f}"
+
+
+class InternalOrderGroupReportOrder(BaseModel):
+    order_id: int
+    production_status: ProductionStatus
+    financial_status: FinancialStatus
+    quantity_requested: int
+    total_amount: MoneyDecimal
+    amount_paid: MoneyDecimal
+    amount_due: MoneyDecimal
+    outsourcing_cost_total: MoneyDecimal
+    outsourcing_paid_total: MoneyDecimal
+    outsourcing_pending_total: MoneyDecimal
+    estimated_result: SignedMoneyDecimal
+    items: list[ReportItem]
+    payments: list[GroupInternalReportPayment]
+    production_events: list[GroupInternalReportProductionEvent]
+    outsourcings: list[GroupInternalReportOutsourcing]
+
+    @field_serializer(
+        "total_amount",
+        "amount_paid",
+        "amount_due",
+        "outsourcing_cost_total",
+        "outsourcing_paid_total",
+        "outsourcing_pending_total",
+        "estimated_result",
+    )
+    def serialize_money(self, value: Decimal) -> str:
+        return f"{value:.2f}"
+
+
+class ClientOrderGroupReport(BaseModel):
+    group_id: int
+    reference: str
+    client: ReportClient
+    quantity: int
+    orders: list[ClientOrderGroupReportOrder]
+    total_amount: MoneyDecimal
+    payments: list[GroupClientReportPayment]
+    amount_paid: MoneyDecimal
+    amount_due: MoneyDecimal
+    production_status: str
+    financial_status: FinancialStatus
+
+    @field_serializer("total_amount", "amount_paid", "amount_due")
+    def serialize_money(self, value: Decimal) -> str:
+        return f"{value:.2f}"
+
+
+class InternalOrderGroupReport(BaseModel):
+    group_id: int
+    reference: str
+    client: ReportClient
+    quantity_requested: int
+    order_count: int
+    orders: list[InternalOrderGroupReportOrder]
+    total_amount: MoneyDecimal
+    amount_paid: MoneyDecimal
+    amount_due: MoneyDecimal
+    outsourcing_cost_total: MoneyDecimal
+    outsourcing_paid_total: MoneyDecimal
+    outsourcing_pending_total: MoneyDecimal
+    estimated_result: SignedMoneyDecimal
+    production_status: ProductionStatus
+    financial_status: FinancialStatus
+
+    @field_serializer(
+        "total_amount",
+        "amount_paid",
+        "amount_due",
+        "outsourcing_cost_total",
+        "outsourcing_paid_total",
+        "outsourcing_pending_total",
+        "estimated_result",
     )
     def serialize_money(self, value: Decimal) -> str:
         return f"{value:.2f}"
@@ -137,13 +254,25 @@ class InternalOrderReport(BaseModel):
     total_amount: MoneyDecimal
     amount_paid: MoneyDecimal
     amount_due: MoneyDecimal
+    outsourcing_cost_total: MoneyDecimal
+    outsourcing_paid_total: MoneyDecimal
+    outsourcing_pending_total: MoneyDecimal
+    estimated_result: SignedMoneyDecimal
     payments: list[InternalReportPayment]
     production_status: ProductionStatus
     financial_status: FinancialStatus
     production_events: list[InternalReportProductionEvent]
     outsourcings: list[InternalReportOutsourcing]
 
-    @field_serializer("total_amount", "amount_paid", "amount_due")
+    @field_serializer(
+        "total_amount",
+        "amount_paid",
+        "amount_due",
+        "outsourcing_cost_total",
+        "outsourcing_paid_total",
+        "outsourcing_pending_total",
+        "estimated_result",
+    )
     def serialize_money(self, value: Decimal) -> str:
         return f"{value:.2f}"
 

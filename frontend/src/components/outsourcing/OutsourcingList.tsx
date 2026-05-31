@@ -80,24 +80,29 @@ export function OutsourcingList({ items, loading, onReturn, onPaid, onError }: P
                       <p className="mt-2 text-sm text-muted">
                         <span className="font-bold text-ink">{item?.product.name ?? "Item nao identificado"}</span>
                         {" / "}
+                        {item ? `${serviceSummary(item)} / ` : ""}
                         {item ? `${item.size.label} / ${item.color} / ` : ""}
                         enviado {outsourcing.quantity_sent} / retornado {outsourcing.quantity_returned}
                       </p>
                     </div>
                     <p className="text-xs font-semibold text-muted">Enviado em {formatDateTime(outsourcing.sent_at)}</p>
                   </div>
-                  <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  <div className="mt-4 grid gap-3 md:grid-cols-4">
                     <div className="rounded-md border border-line bg-[#FCFAF6] p-3">
-                      <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Cobrado total</p>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Referencia OS</p>
                       <p className="mt-1 text-lg font-black text-ink">{formatCurrency(outsourcing.customer_total)}</p>
                     </div>
                     <div className="rounded-md border border-line bg-[#FCFAF6] p-3">
-                      <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Repasse total</p>
-                      <p className="mt-1 text-lg font-black text-ink">{formatCurrency(outsourcing.outsourcer_total)}</p>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Custo unitario</p>
+                      <p className="mt-1 text-lg font-black text-ink">{formatCurrency(outsourcing.outsourcer_unit_price)}</p>
                     </div>
                     <div className="rounded-md border border-line bg-[#FCFAF6] p-3">
-                      <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Lucro</p>
-                      <p className="mt-1 text-lg font-black text-success">{formatCurrency(outsourcing.profit_total)}</p>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Custo total</p>
+                      <p className="mt-1 text-lg font-black text-warning">{formatCurrency(outsourcing.outsourcer_total)}</p>
+                    </div>
+                    <div className="rounded-md border border-line bg-[#FCFAF6] p-3">
+                      <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted">Resultado ref.</p>
+                      <p className={`mt-1 text-lg font-black ${Number(outsourcing.profit_total) < 0 ? "text-danger" : "text-success"}`}>{formatCurrency(outsourcing.profit_total)}</p>
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
@@ -120,4 +125,9 @@ export function OutsourcingList({ items, loading, onReturn, onPaid, onError }: P
       </CardContent>
     </Card>
   );
+}
+
+function serviceSummary(item: OrderDetails["items"][number]) {
+  const services = item.services.map((service) => service.service.name);
+  return services.length > 0 ? services.join(", ") : "Sem servico";
 }

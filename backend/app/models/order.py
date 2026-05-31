@@ -9,7 +9,9 @@ from app.models.enums import (
     DeliveryStatus,
     FinancialStatus,
     OperationalPriority,
+    OutsourcingStatus,
     PaymentMethod,
+    PayoutStatus,
     PrintType,
     ProductionEventType,
     ProductionStatus,
@@ -17,11 +19,41 @@ from app.models.enums import (
 )
 
 
+class ClientOrderGroup(Base):
+    __tablename__ = "client_order_groups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"), nullable=False)
+    reference: Mapped[str] = mapped_column(String(255), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    client = relationship("Client", back_populates="client_order_groups")
+    orders = relationship(
+        "Order",
+        back_populates="client_order_group",
+        order_by="Order.created_at.desc()",
+    )
+
+
 class Order(Base):
     __tablename__ = "orders"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"), nullable=False)
+    client_order_group_id: Mapped[int | None] = mapped_column(
+        ForeignKey("client_order_groups.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     weekly_closing_id: Mapped[int | None] = mapped_column(
         ForeignKey("weekly_closings.id"), nullable=True
     )
@@ -80,6 +112,7 @@ class Order(Base):
     )
 
     client = relationship("Client", back_populates="orders")
+    client_order_group = relationship("ClientOrderGroup", back_populates="orders")
     weekly_closing = relationship("WeeklyClosing", back_populates="orders")
     product = relationship("Product", back_populates="orders")
     size = relationship("Size", back_populates="orders")
@@ -113,6 +146,56 @@ class Order(Base):
         cascade="all, delete-orphan",
         order_by="OrderOutsourcing.id",
     )
+
+    @property
+    def outsourcing_cost_total(self) -> Decimal:
+        return sum(
+            (
+                outsourcing.outsourcer_total
+                for outsourcing in self.outsourcings
+                if outsourcing.status != OutsourcingStatus.CANCELLED
+            ),
+            Decimal("0.00"),
+        )
+
+    @property
+    def outsourcing_paid_total(self) -> Decimal:
+        return sum(
+            (
+                outsourcing.outsourcer_total
+                for outsourcing in self.outsourcings
+                if outsourcing.status != OutsourcingStatus.CANCELLED
+                and outsourcing.payout_status == PayoutStatus.PAID
+            ),
+            Decimal("0.00"),
+        )
+
+    @property
+    def outsourcing_pending_total(self) -> Decimal:
+        return sum(
+            (
+                outsourcing.outsourcer_total
+                for outsourcing in self.outsourcings
+                if outsourcing.status != OutsourcingStatus.CANCELLED
+                and outsourcing.payout_status != PayoutStatus.PAID
+            ),
+            Decimal("0.00"),
+        )
+
+    @property
+    def outsourcing_revenue_total(self) -> Decimal:
+        return sum(
+            (
+                outsourcing.customer_total
+                for outsourcing in self.outsourcings
+                if outsourcing.status != OutsourcingStatus.CANCELLED
+            ),
+            Decimal("0.00"),
+        )
+
+    @property
+    def estimated_result(self) -> Decimal:
+        return self.total_amount - self.outsourcing_cost_total
 
 
 class OrderService(Base):
@@ -175,6 +258,9 @@ class OrderItem(Base):
         nullable=True,
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_cancelled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

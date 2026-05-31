@@ -18,6 +18,7 @@ import {
 import { itemFlowLabel } from "@/components/production/helpers";
 import type { OrderDetails as OrderDetailsType, OrderItem } from "@/components/orders/types";
 import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -150,6 +151,7 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
     setOrder(updated);
     setSuccess("Pecas devolvidas ao estoque com sucesso.");
   }
+  const activeItems = order.items.filter((item) => !item.is_cancelled);
 
   return (
     <div className="space-y-5">
@@ -167,10 +169,21 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
           </p>
           <h1 className="mt-1 text-2xl font-black text-ink">{order.client.name}</h1>
           <p className="mt-2 text-sm font-semibold text-muted">
-            {order.items.length > 1
-              ? `${order.items.length} itens nesta OS`
-              : `${order.items[0]?.product.name ?? "-"} / ${order.items[0]?.size.label ?? "-"} / ${order.items[0]?.color ?? "-"}`}
+            {activeItems.length > 1
+              ? `${activeItems.length} itens ativos nesta OS`
+              : `${activeItems[0]?.product.name ?? "-"} / ${activeItems[0]?.size.label ?? "-"} / ${activeItems[0]?.color ?? "-"}`}
+            {order.items.length > activeItems.length
+              ? ` / ${order.items.length - activeItems.length} cancelado(s) no historico`
+              : ""}
           </p>
+          {order.client_order_group ? (
+            <Link
+              href="/order-groups"
+              className="mt-3 inline-flex rounded-md border border-accent/30 bg-accent-soft/45 px-3 py-2 text-xs font-black uppercase tracking-[0.14em] text-accent-dark transition hover:bg-accent-soft"
+            >
+              Pedido de Cliente: {order.client_order_group.reference}
+            </Link>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <StatusBadge
@@ -228,9 +241,31 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
             Producao pausada. Pecas destinadas permanecem na OS ate uma devolucao manual ao estoque.
           </div>
         ) : null}
-        <FinancialCard label="Total" value={order.total_amount} />
-        <FinancialCard label="Pago" value={order.amount_paid} />
-        <FinancialCard label="A receber" value={order.amount_due} emphasis />
+        <FinancialCard
+          label="Total do pedido"
+          value={order.total_amount}
+          detail="Valor final a cobrar do cliente: servicos da OS + terceirizacao vendida."
+        />
+        <FinancialCard label="Pago pelo cliente" value={order.amount_paid} />
+        <FinancialCard label="Saldo a receber" value={order.amount_due} emphasis />
+        <FinancialCard
+          label="Terceirizacao vendida"
+          value={order.outsourcing_revenue_total}
+          detail="Referencia OS lancada nos envios para terceirizacao."
+          tone="result"
+        />
+        <FinancialCard
+          label="Custo terceirizado"
+          value={order.outsourcing_cost_total}
+          detail={`${formatCurrency(order.outsourcing_pending_total)} pendente de repasse.`}
+          tone="cost"
+        />
+        <FinancialCard
+          label="Resultado estimado"
+          value={order.estimated_result}
+          detail="Cobrado do cliente menos custo terceirizado."
+          tone={Number(order.estimated_result) < 0 ? "loss" : "result"}
+        />
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
@@ -240,16 +275,30 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {order.items.map((item, index) => (
-                <div
-                  key={item.id}
-                  className="rounded-md border border-line bg-[#FCFAF6] p-4"
-                >
+              {order.items.map((item, index) => {
+                const itemOutsourcings = activeItemOutsourcings(order, item.id);
+                const itemTotal = item.services.reduce(
+                  (total, service) => total + Number(service.total_price),
+                  0
+                ) + itemOutsourcings.reduce(
+                  (total, outsourcing) => total + Number(outsourcing.customer_total),
+                  0
+                );
+                return (
+                <div key={item.id} className="rounded-md border border-line bg-[#FCFAF6] p-4">
                   <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                     <div>
                       <p className="text-xs font-bold uppercase tracking-[0.14em] text-accent-dark">
                         Item {index + 1}
                       </p>
+                      {item.is_cancelled ? (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Badge tone="danger">Cancelado</Badge>
+                          {item.cancelled_at ? (
+                            <Badge tone="neutral">{formatDateTime(item.cancelled_at)}</Badge>
+                          ) : null}
+                        </div>
+                      ) : null}
                       <p className="mt-1 font-black text-ink">{item.product.name}</p>
                       <p className="mt-1 text-sm font-semibold text-muted">
                         Tamanho {item.size.label} / {item.color || "Sem cor"} /{" "}
@@ -261,18 +310,17 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
                     </div>
                     <div className="flex flex-col items-end gap-2">
                       <p className="text-sm font-black text-ink">
-                        {formatCurrency(
-                          item.services
-                            .reduce((total, service) => total + Number(service.total_price), 0)
-                            .toFixed(2)
-                        )}
+                        {formatCurrency(itemTotal.toFixed(2))}
                       </p>
                       {item.quantity_cut > 0 ? (
                         <Button
                           type="button"
                           variant="secondary"
                           onClick={() => setReturnTarget(item)}
-                          disabled={["cancelled", "delivered"].includes(order.production_status)}
+                          disabled={
+                            item.is_cancelled ||
+                            ["cancelled", "delivered"].includes(order.production_status)
+                          }
                         >
                           <Undo2 size={16} />
                           Devolver ao estoque
@@ -297,12 +345,38 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
                         </p>
                       </div>
                     ))}
+                    {itemOutsourcings.map((outsourcing) => (
+                      <div
+                        key={`outsourcing-${outsourcing.id}`}
+                        className="grid gap-2 rounded-md border border-accent/30 bg-accent-soft/30 p-3 md:grid-cols-[1fr_auto]"
+                      >
+                        <div>
+                          <p className="font-bold text-ink">Terceirizacao vendida</p>
+                          <p className="mt-1 text-sm text-muted">
+                            {outsourcing.quantity_sent} pecas x{" "}
+                            {formatCurrency(outsourcing.customer_unit_price)}
+                          </p>
+                          <p className="mt-1 text-xs font-semibold text-muted">
+                            Custo terceirizado: {formatCurrency(outsourcing.outsourcer_total)}
+                          </p>
+                        </div>
+                        <p className="text-right font-black text-ink">
+                          {formatCurrency(outsourcing.customer_total)}
+                        </p>
+                      </div>
+                    ))}
                   </div>
                   {item.notes ? (
                     <p className="mt-3 text-sm font-semibold text-muted">{item.notes}</p>
                   ) : null}
+                  {item.is_cancelled && item.cancel_reason ? (
+                    <p className="mt-3 rounded-md border border-danger/20 bg-danger/10 p-3 text-sm font-semibold text-danger">
+                      Motivo do cancelamento: {item.cancel_reason}
+                    </p>
+                  ) : null}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </CardContent>
         </Card>
@@ -416,19 +490,39 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
 function FinancialCard({
   label,
   value,
-  emphasis = false
+  detail,
+  emphasis = false,
+  tone = "default"
 }: {
   label: string;
   value: string;
+  detail?: string;
   emphasis?: boolean;
+  tone?: "default" | "cost" | "result" | "loss";
 }) {
+  const toneClass =
+    tone === "loss"
+      ? "text-danger"
+      : tone === "result"
+        ? "text-success"
+        : tone === "cost"
+          ? "text-warning"
+          : "text-ink";
+
   return (
     <Card className={emphasis ? "border-accent/35 bg-accent-soft/35" : undefined}>
       <CardContent>
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted">{label}</p>
-        <p className="mt-3 text-3xl font-black text-ink">{formatCurrency(value)}</p>
+        <p className={`mt-3 text-3xl font-black ${toneClass}`}>{formatCurrency(value)}</p>
+        {detail ? <p className="mt-2 text-xs font-semibold leading-5 text-muted">{detail}</p> : null}
       </CardContent>
     </Card>
+  );
+}
+
+function activeItemOutsourcings(order: OrderDetailsType, itemId: number) {
+  return order.outsourcings.filter(
+    (outsourcing) => outsourcing.order_item_id === itemId && outsourcing.status !== "cancelled"
   );
 }
 
@@ -489,6 +583,7 @@ function eventLabel(eventType: string) {
   if (eventType === "outsourcing_sent") return "Terceirizacao enviada";
   if (eventType === "outsourcing_returned") return "Retorno de terceirizacao";
   if (eventType === "delivery_registered") return "Entrega registrada";
+  if (eventType === "order_item_cancelled") return "Item cancelado";
   if (eventType === "loss_registered") return "Perda registrada";
   if (eventType === "rework_registered") return "Retrabalho registrado";
   if (eventType === "adjustment_registered") return "Ajuste operacional";

@@ -169,10 +169,12 @@ export function FinancePage() {
   const payoutRows = useMemo<PayoutRow[]>(
     () =>
       orders.flatMap((order) =>
-        order.outsourcings.map((outsourcing) => ({
-          order,
-          outsourcing
-        }))
+        order.outsourcings
+          .filter((outsourcing) => outsourcing.status !== "cancelled")
+          .map((outsourcing) => ({
+            order,
+            outsourcing
+          }))
       ),
     [orders]
   );
@@ -218,6 +220,7 @@ export function FinancePage() {
     const payoutPending = periodPayoutRows
       .filter((row) => row.outsourcing.payout_status === "pending")
       .reduce((total, row) => total + money(row.outsourcing.outsourcer_total), 0);
+    const outsourcingCostTotal = payoutPaid + payoutPending;
     const totalInvoiced = periodOrders.reduce((total, order) => total + money(order.total_amount), 0);
 
     return {
@@ -228,8 +231,9 @@ export function FinancePage() {
       employeePending,
       payoutPaid,
       payoutPending,
+      outsourcingCostTotal,
       cashResult: totalReceived - employeePaid - payoutPaid,
-      projectedResult: totalInvoiced - employeePending - payoutPending
+      projectedResult: totalInvoiced - employeePaid - employeePending - outsourcingCostTotal
     };
   }, [orders, periodClosings, periodOrders, periodPayoutRows, range]);
 

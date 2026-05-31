@@ -28,7 +28,13 @@ def create_client(
 
 @router.get("", response_model=list[ClientRead])
 def list_clients(db: Annotated[Session, Depends(get_db)]) -> list[Client]:
-    return list(db.scalars(select(Client).options(selectinload(Client.orders)).order_by(Client.name)))
+    return list(
+        db.scalars(
+            select(Client)
+            .options(selectinload(Client.orders), selectinload(Client.client_order_groups))
+            .order_by(Client.name)
+        )
+    )
 
 
 @router.put("/{client_id}", response_model=ClientRead)
@@ -53,7 +59,7 @@ def delete_client(
     db: Annotated[Session, Depends(get_db)],
 ) -> Client | Response:
     client = _get_client_or_404(db, client_id)
-    if client.orders:
+    if client.orders or client.client_order_groups:
         client.is_active = False
         db.commit()
         return _get_client_or_404(db, client.id)
@@ -65,7 +71,9 @@ def delete_client(
 
 def _get_client_or_404(db: Session, client_id: int) -> Client:
     client = db.scalar(
-        select(Client).where(Client.id == client_id).options(selectinload(Client.orders))
+        select(Client)
+        .where(Client.id == client_id)
+        .options(selectinload(Client.orders), selectinload(Client.client_order_groups))
     )
     if client is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { formatCurrency, formatDateTime } from "@/lib/format";
+import { formatTime24 } from "./Time24Input";
 import type { Employee, WorkLog, WorkPaymentMode } from "./types";
 
 type Props = {
@@ -24,11 +25,6 @@ const paymentModeLabels: Record<WorkPaymentMode, string> = {
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
-}
-
-function formatTime(value: string | null) {
-  if (!value) return "-";
-  return value.slice(0, 5);
 }
 
 export function WorkLogsTable({ employees, workLogs, loading, selectedEmployee, onRegisterExit, onClearFilter }: Props) {
@@ -100,8 +96,8 @@ export function WorkLogsTable({ employees, workLogs, loading, selectedEmployee, 
                       {employeeById.get(workLog.employee_id) ?? `#${workLog.employee_id}`}
                     </td>
                     <td className="border-b border-line/70 px-4 py-4 text-muted">{formatDate(workLog.work_date)}</td>
-                    <td className="border-b border-line/70 px-4 py-4 text-muted">{formatTime(workLog.clock_in)}</td>
-                    <td className="border-b border-line/70 px-4 py-4 text-muted">{formatTime(workLog.clock_out)}</td>
+                    <td className="border-b border-line/70 px-4 py-4 text-muted">{formatTime24(workLog.clock_in)}</td>
+                    <td className="border-b border-line/70 px-4 py-4 text-muted">{formatTime24(workLog.clock_out)}</td>
                     <td className="border-b border-line/70 px-4 py-4 text-muted">
                       {paymentModeLabels[workLog.payment_mode]}
                     </td>

@@ -26,6 +26,7 @@ import type {
   OrderSummary
 } from "@/components/orders/types";
 import {
+  activeOrderItems,
   buildOperationalQueueItem,
   itemFlowLabel,
   itemNeedsStage,
@@ -172,7 +173,7 @@ export function ProductionPage() {
     () =>
       orders
         .flatMap((order) =>
-          order.items.map((item, index) => buildOperationalQueueItem(order, item, index + 1))
+          activeOrderItems(order).map((item, index) => buildOperationalQueueItem(order, item, index + 1))
         )
         .sort((a, b) => {
           const priorityDiff = priorityRank[a.item.operational_priority] - priorityRank[b.item.operational_priority];
@@ -265,7 +266,7 @@ export function ProductionPage() {
         client_id: row.order.client.id,
         allow_printing_exception: row.order.allow_printing_exception,
         notes: row.order.notes,
-        items: row.order.items.map((item) => ({
+        items: activeOrderItems(row.order).map((item) => ({
           id: item.id,
           product_id: item.product_id,
           size_id: item.size_id,

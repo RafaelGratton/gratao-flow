@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { api } from "@/lib/api";
+import { isValidTime24, Time24Input } from "./Time24Input";
 import type { Employee, WorkLog, WorkPaymentMode } from "./types";
 
 type Props = {
@@ -52,6 +53,10 @@ export function WorkLogModal({ employee, onClose, onCreated }: Props) {
     }
     if (!workDate || !clockIn) {
       setError("Informe data e hora de entrada.");
+      return;
+    }
+    if (!isValidTime24(clockIn)) {
+      setError("Informe a entrada no formato 24h HH:mm, por exemplo 07:00.");
       return;
     }
     if (Number(breakHours) < 0 || Number.isNaN(Number(breakHours))) {
@@ -105,7 +110,7 @@ export function WorkLogModal({ employee, onClose, onCreated }: Props) {
           ) : null}
           <div className="grid gap-4 md:grid-cols-3">
             <Input label="Data" type="date" value={workDate} onChange={(event) => setWorkDate(event.target.value)} />
-            <Input label="Entrada" type="time" value={clockIn} onChange={(event) => setClockIn(event.target.value)} />
+            <Time24Input label="Entrada" value={clockIn} onChange={setClockIn} />
             <Input
               label="Intervalo previsto"
               type="number"

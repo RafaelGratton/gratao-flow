@@ -45,6 +45,8 @@ export type CatalogItem = {
 
 export type OrderSummary = {
   id: number;
+  client_order_group_id: number | null;
+  client_order_group?: { id: number; reference: string } | null;
   client: { id: number; name: string };
   product: { id: number; name: string };
   size: { id: number; label: string };
@@ -56,6 +58,11 @@ export type OrderSummary = {
   total_amount: string;
   amount_paid: string;
   amount_due: string;
+  outsourcing_revenue_total: string;
+  outsourcing_cost_total: string;
+  outsourcing_paid_total: string;
+  outsourcing_pending_total: string;
+  estimated_result: string;
   items: OrderItem[];
   created_at: string;
 };
@@ -78,6 +85,9 @@ export type OrderItem = {
   delivery_status: DeliveryStatus;
   sewing_mode: SewingMode | null;
   notes: string | null;
+  is_cancelled: boolean;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
   created_at: string;
   delivery_history: Array<{
     id: number;

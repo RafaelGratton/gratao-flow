@@ -17,6 +17,7 @@ export type FinanceSummary = {
   employeePending: number;
   payoutPaid: number;
   payoutPending: number;
+  outsourcingCostTotal: number;
   cashResult: number;
   projectedResult: number;
 };

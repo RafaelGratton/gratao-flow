@@ -69,6 +69,7 @@ class ProductionEventType(StrEnum):
     OUTSOURCING_RETURNED = "outsourcing_returned"
     OUTSOURCING_PAYOUT_PAID = "outsourcing_payout_paid"
     DELIVERY_REGISTERED = "delivery_registered"
+    ORDER_ITEM_CANCELLED = "order_item_cancelled"
     LOSS_REGISTERED = "loss_registered"
     REWORK_REGISTERED = "rework_registered"
     ADJUSTMENT_REGISTERED = "adjustment_registered"

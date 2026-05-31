@@ -11,6 +11,11 @@ MoneyDecimal = Annotated[
     Field(ge=Decimal("0"), max_digits=10, decimal_places=2),
 ]
 
+SignedMoneyDecimal = Annotated[
+    Decimal,
+    Field(max_digits=10, decimal_places=2),
+]
+
 
 class OutsourcerCreate(BaseModel):
     name: str = Field(min_length=1)
@@ -50,8 +55,6 @@ class OutsourcingCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_flow_and_prices(self) -> "OutsourcingCreate":
-        if self.outsourcer_unit_price > self.customer_unit_price:
-            raise ValueError("outsourcer_unit_price cannot be greater than customer_unit_price")
         if self.direct_to_customer:
             raise ValueError("Terceirizacao sempre retorna para a Gratao antes da entrega ao cliente")
         self.return_expected = True
@@ -79,7 +82,7 @@ class OrderOutsourcingRead(BaseModel):
     outsourcer_unit_price: MoneyDecimal
     customer_total: MoneyDecimal
     outsourcer_total: MoneyDecimal
-    profit_total: MoneyDecimal
+    profit_total: SignedMoneyDecimal
     return_expected: bool
     direct_to_customer: bool
     status: OutsourcingStatus

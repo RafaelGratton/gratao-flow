@@ -69,7 +69,6 @@ export function OutsourcingCreateModal({
     if (!Number.isInteger(quantity) || quantity <= 0) return "Informe uma quantidade inteira maior que zero.";
     if (quantity > availableQuantity) return `Quantidade disponivel: ${availableQuantity}.`;
     if (customer < 0 || payout < 0) return "Valores devem ser maiores ou iguais a zero.";
-    if (payout > customer) return "O repasse nao pode ser maior que o valor cobrado.";
     return null;
   }, [availableQuantity, customerUnitPrice, outsourcerUnitPrice, paused, quantitySent]);
 
@@ -84,7 +83,7 @@ export function OutsourcingCreateModal({
         order_item_id: item.id,
         outsourcer_id: outsourcerId ? Number(outsourcerId) : null,
         quantity_sent: Number(quantitySent),
-        customer_unit_price: customerUnitPrice,
+        customer_unit_price: customerUnitPrice || "0",
         outsourcer_unit_price: outsourcerUnitPrice,
         return_expected: true,
         direct_to_customer: false,
@@ -133,8 +132,11 @@ export function OutsourcingCreateModal({
               <Button type="button" variant="secondary" className="w-full" onClick={onQuickCreate}>Cadastrar terceirizado</Button>
             </div>
             <Input label={`Quantidade enviada (destinada/processada disponivel: ${availableQuantity})`} type="number" min="1" max={availableQuantity} step="1" value={quantitySent} onChange={(event) => setQuantitySent(event.target.value)} />
-            <Input label="Valor cobrado por peca" type="number" min="0" step="0.01" value={customerUnitPrice} onChange={(event) => setCustomerUnitPrice(event.target.value)} />
-            <Input label="Repasse por peca" type="number" min="0" step="0.01" value={outsourcerUnitPrice} onChange={(event) => setOutsourcerUnitPrice(event.target.value)} />
+            <div>
+              <Input label="Preco vendido na OS por peca (referencia)" type="number" min="0" step="0.01" value={customerUnitPrice} onChange={(event) => setCustomerUnitPrice(event.target.value)} />
+              <p className="mt-1 text-xs font-semibold text-muted">Este valor entra no total cobrado da OS.</p>
+            </div>
+            <Input label="Custo terceirizado por peca" type="number" min="0" step="0.01" value={outsourcerUnitPrice} onChange={(event) => setOutsourcerUnitPrice(event.target.value)} />
             <div className="rounded-md border border-line bg-[#FCFAF6] p-3 text-sm font-semibold text-muted">
               Fluxo: retorna para a Gratao antes da entrega ao cliente.
             </div>
@@ -144,9 +146,12 @@ export function OutsourcingCreateModal({
             <textarea className="min-h-24 w-full rounded-md border border-line bg-white px-3 py-3 text-sm text-ink shadow-insetline transition focus:focus-ring" value={notes} onChange={(event) => setNotes(event.target.value)} />
           </label>
           <div className="grid gap-3 rounded-md border border-line bg-[#FCFAF6] p-4 md:grid-cols-3">
-            <div><p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Cliente</p><p className="mt-1 text-lg font-black text-ink">{formatCurrency(totals.customer)}</p></div>
-            <div><p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Repasse</p><p className="mt-1 text-lg font-black text-ink">{formatCurrency(totals.payout)}</p></div>
-            <div><p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Lucro</p><p className="mt-1 text-lg font-black text-success">{formatCurrency(totals.profit)}</p></div>
+            <div><p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Referencia OS</p><p className="mt-1 text-lg font-black text-ink">{formatCurrency(totals.customer)}</p></div>
+            <div><p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Custo terceirizado</p><p className="mt-1 text-lg font-black text-warning">{formatCurrency(totals.payout)}</p></div>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Resultado ref.</p>
+              <p className={`mt-1 text-lg font-black ${totals.profit < 0 ? "text-danger" : "text-success"}`}>{formatCurrency(totals.profit)}</p>
+            </div>
           </div>
           {validation ? <p className="text-sm font-semibold text-danger">{validation}</p> : null}
           <div className="flex justify-end gap-2">

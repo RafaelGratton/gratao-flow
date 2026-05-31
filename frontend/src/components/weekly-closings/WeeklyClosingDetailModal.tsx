@@ -1,6 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
+import { formatTime24 } from "@/components/employees/Time24Input";
 import type { Employee } from "@/components/employees/types";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -44,11 +45,6 @@ const pixTypeLabels: Record<PixKeyType, string> = {
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
-}
-
-function formatTime(value: string | null) {
-  if (!value) return "-";
-  return value.slice(0, 5);
 }
 
 export function WeeklyClosingDetailModal({ closing, employees, onClose }: Props) {
@@ -137,8 +133,8 @@ export function WeeklyClosingDetailModal({ closing, employees, onClose }: Props)
                     {closing.work_logs.map((log) => (
                       <tr key={log.id}>
                         <td className="border-b border-line/70 px-3 py-3 font-bold text-ink">{formatDate(log.work_date)}</td>
-                        <td className="border-b border-line/70 px-3 py-3 text-muted">{formatTime(log.clock_in)}</td>
-                        <td className="border-b border-line/70 px-3 py-3 text-muted">{formatTime(log.clock_out)}</td>
+                        <td className="border-b border-line/70 px-3 py-3 text-muted">{formatTime24(log.clock_in)}</td>
+                        <td className="border-b border-line/70 px-3 py-3 text-muted">{formatTime24(log.clock_out)}</td>
                         <td className="border-b border-line/70 px-3 py-3 text-muted">{log.net_hours}h</td>
                         <td className="border-b border-line/70 px-3 py-3 text-muted">{log.overtime_hours}h</td>
                         <td className="border-b border-line/70 px-3 py-3 font-black text-ink">

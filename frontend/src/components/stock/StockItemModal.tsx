@@ -163,11 +163,13 @@ export function StockItemModal({ open, products, sizes, onClose, onCreated }: Pr
                 onChange={(event) => update("size_id", event.target.value)}
               >
                 <option value="">Selecione</option>
-                {sizes.map((size) => (
-                  <option key={size.id} value={size.id}>
-                    {size.label}
-                  </option>
-                ))}
+                {sizes
+                  .filter((size) => size.is_active !== false)
+                  .map((size) => (
+                    <option key={size.id} value={size.id}>
+                      {size.label}
+                    </option>
+                  ))}
               </select>
             </label>
           </div>

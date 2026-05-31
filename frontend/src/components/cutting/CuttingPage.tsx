@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OrderDetails, OrderItem, OrderSummary } from "@/components/orders/types";
 import type { StockItem } from "@/components/stock/types";
 import {
+  activeOrderItems,
   buildOperationalQueueItem,
   itemHasService,
   priorityLabel,
@@ -88,7 +89,7 @@ export function CuttingPage() {
     () =>
       orders
         .flatMap((order) =>
-          order.items.map((item, index) => ({
+          activeOrderItems(order).map((item, index) => ({
             ...buildOperationalQueueItem(order, item, index + 1),
             availableStock: compatibleStockBalance(stockItems, item)
           }))

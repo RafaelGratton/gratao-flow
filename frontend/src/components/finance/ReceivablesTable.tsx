@@ -22,7 +22,9 @@ export function ReceivablesTable({ orders, loading, onAddPayment }: Props) {
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent-dark">Recebimentos de OS</p>
           <h2 className="mt-1 text-xl font-black text-ink">Clientes e saldos no periodo</h2>
-          <p className="mt-2 text-sm text-muted">OS faturadas ou com pagamento registrado no intervalo.</p>
+          <p className="mt-2 text-sm text-muted">
+            Recebiveis de clientes separados dos custos de terceirizacao.
+          </p>
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -42,16 +44,25 @@ export function ReceivablesTable({ orders, loading, onAddPayment }: Props) {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-[1040px] w-full border-separate border-spacing-0 text-left text-sm">
+            <table className="min-w-[1240px] w-full border-separate border-spacing-0 text-left text-sm">
               <thead>
                 <tr className="bg-[#FCFAF6] text-xs font-black uppercase tracking-[0.12em] text-muted">
-                  {["OS", "Cliente", "Itens", "Total", "Pago", "Pendente", "Status financeiro", "Acoes"].map(
-                    (heading) => (
-                      <th key={heading} className="border-b border-line px-4 py-3">
-                        {heading}
-                      </th>
-                    )
-                  )}
+                  {[
+                    "OS",
+                    "Cliente",
+                    "Itens",
+                    "Cobrado do cliente",
+                    "Pago pelo cliente",
+                    "Saldo a receber",
+                    "Custo terceirizado",
+                    "Resultado estimado",
+                    "Status financeiro",
+                    "Acoes"
+                  ].map((heading) => (
+                    <th key={heading} className="border-b border-line px-4 py-3">
+                      {heading}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -70,6 +81,12 @@ export function ReceivablesTable({ orders, loading, onAddPayment }: Props) {
                       </td>
                       <td className="border-b border-line/70 px-4 py-4 font-bold text-danger">
                         {formatCurrency(order.amount_due)}
+                      </td>
+                      <td className="border-b border-line/70 px-4 py-4 font-bold text-warning">
+                        {formatCurrency(order.outsourcing_cost_total)}
+                      </td>
+                      <td className="border-b border-line/70 px-4 py-4 font-bold text-ink">
+                        {formatCurrency(order.estimated_result)}
                       </td>
                       <td className="border-b border-line/70 px-4 py-4">
                         <StatusBadge
@@ -102,7 +119,8 @@ export function ReceivablesTable({ orders, loading, onAddPayment }: Props) {
 }
 
 function itemSummary(order: OrderDetails) {
-  if (order.items.length === 0) return "-";
-  if (order.items.length === 1) return order.items[0].product.name;
-  return `${order.items.length} itens`;
+  const activeItems = order.items.filter((item) => !item.is_cancelled);
+  if (activeItems.length === 0) return "-";
+  if (activeItems.length === 1) return activeItems[0].product.name;
+  return `${activeItems.length} itens`;
 }

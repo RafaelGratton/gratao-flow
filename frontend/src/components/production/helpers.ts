@@ -92,6 +92,14 @@ export function getPrintingService(order: OrderDetails) {
   return order.services.find((item) => item.service.type === "serigrafia");
 }
 
+export function itemIsCancelled(item: OrderItem) {
+  return item.is_cancelled === true;
+}
+
+export function activeOrderItems(order: OrderDetails) {
+  return order.items.filter((item) => !itemIsCancelled(item));
+}
+
 export function getItemPrintingService(item: OrderItem) {
   return item.services.find((service) => service.service.type === "serigrafia");
 }
@@ -110,6 +118,7 @@ function itemRequiresAllocation(item: OrderItem) {
 }
 
 export function itemNeedsStage(item: OrderItem, stage: "cut" | "print" | "sew" | "outsourcing") {
+  if (itemIsCancelled(item)) return false;
   if (stage === "cut") return itemRequiresAllocation(item);
   if (stage === "print") return itemHasService(item, "serigrafia");
   if (stage === "sew") return itemHasService(item, "confeccao") && item.sewing_mode === "internal";
@@ -117,16 +126,19 @@ export function itemNeedsStage(item: OrderItem, stage: "cut" | "print" | "sew" |
 }
 
 export function itemStageDone(item: OrderItem, stage: "cut" | "print" | "sew") {
+  if (itemIsCancelled(item)) return false;
   if (stage === "cut") return item.quantity_cut >= item.quantity_requested;
   if (stage === "print") return item.quantity_printed >= item.quantity_requested;
   return item.quantity_sewn >= item.quantity_requested;
 }
 
 export function missingCut(item: OrderItem) {
+  if (itemIsCancelled(item)) return 0;
   return Math.max(item.quantity_requested - item.quantity_cut, 0);
 }
 
 export function relevantStage(item: OrderItem): ProductionQueueStage {
+  if (itemIsCancelled(item)) return "done";
   if (item.quantity_delivered >= item.quantity_requested) return "done";
   if (itemNeedsStage(item, "cut") && !itemStageDone(item, "cut")) return "cut";
   if (itemNeedsStage(item, "print") && !itemStageDone(item, "print")) return "print";
@@ -152,6 +164,7 @@ export function itemReadyForOutsourcing(item: OrderItem) {
 }
 
 export function itemFlowLabel(item: OrderItem) {
+  if (itemIsCancelled(item)) return "Item cancelado";
   const stages = flowStageOptions(item).map((stage) => {
     if (stage === "cut") return "Destinacao de corte";
     if (stage === "print") return "Serigrafia";

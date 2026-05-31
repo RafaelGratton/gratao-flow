@@ -32,6 +32,16 @@ MoneyDecimal = Annotated[
     ),
 ]
 
+SignedMoneyDecimal = Annotated[
+    Decimal,
+    Field(
+        max_digits=10,
+        decimal_places=2,
+        examples=[150.00],
+        json_schema_extra={"example": 150.00},
+    ),
+]
+
 PositiveMoneyDecimal = Annotated[
     Decimal,
     Field(
@@ -53,6 +63,15 @@ class OrderItemCreate(BaseModel):
     sewing_mode: SewingMode | None = None
     notes: str | None = None
     service_ids: list[int] = Field(min_length=1)
+    service_prices: dict[int, MoneyDecimal] = Field(default_factory=dict)
+
+    @field_validator("color")
+    @classmethod
+    def validate_color(cls, value: str) -> str:
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise ValueError("color is required")
+        return cleaned
 
 
 class OrderItemUpdate(BaseModel):
@@ -65,6 +84,15 @@ class OrderItemUpdate(BaseModel):
     sewing_mode: SewingMode | None = None
     notes: str | None = None
     service_ids: list[int] = Field(min_length=1)
+    service_prices: dict[int, MoneyDecimal] = Field(default_factory=dict)
+
+    @field_validator("color")
+    @classmethod
+    def validate_color(cls, value: str) -> str:
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise ValueError("color is required")
+        return cleaned
 
 
 class OrderCreate(BaseModel):
@@ -78,6 +106,7 @@ class OrderCreate(BaseModel):
     lot: str = ""
     notes: str | None = None
     service_ids: list[int] | None = None
+    service_prices: dict[int, MoneyDecimal] | None = None
 
     @model_validator(mode="after")
     def validate_items(self) -> "OrderCreate":
@@ -106,6 +135,7 @@ class OrderCreate(BaseModel):
                 sewing_mode=None,
                 notes=self.notes,
                 service_ids=self.service_ids or [],
+                service_prices=self.service_prices or {},
             )
         ]
 
@@ -115,6 +145,18 @@ class OrderUpdate(BaseModel):
     items: list[OrderItemUpdate] = Field(min_length=1)
     allow_printing_exception: bool = False
     notes: str | None = None
+
+
+class OrderItemCancel(BaseModel):
+    reason: str = Field(min_length=1, max_length=255)
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        cleaned = " ".join(value.split())
+        if not cleaned:
+            raise ValueError("reason is required")
+        return cleaned
 
 
 class OrderServiceRead(BaseModel):
@@ -167,6 +209,9 @@ class OrderItemRead(BaseModel):
     delivery_status: DeliveryStatus
     sewing_mode: SewingMode | None
     notes: str | None
+    is_cancelled: bool
+    cancelled_at: datetime | None
+    cancel_reason: str | None
     delivery_history: list[DeliveryHistoryRead] = Field(default_factory=list)
     services: list[OrderItemServiceRead]
     created_at: datetime
@@ -293,8 +338,17 @@ class OperationalHistoryEntry(BaseModel):
     created_at: datetime
 
 
+class ClientOrderGroupBrief(BaseModel):
+    id: int
+    reference: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class OrderSummary(BaseModel):
     id: int
+    client_order_group_id: int | None = None
+    client_order_group: ClientOrderGroupBrief | None = None
     client: ClientRead
     product: ProductRead
     size: SizeRead
@@ -306,12 +360,26 @@ class OrderSummary(BaseModel):
     total_amount: MoneyDecimal
     amount_paid: MoneyDecimal
     amount_due: MoneyDecimal
+    outsourcing_revenue_total: MoneyDecimal
+    outsourcing_cost_total: MoneyDecimal
+    outsourcing_paid_total: MoneyDecimal
+    outsourcing_pending_total: MoneyDecimal
+    estimated_result: SignedMoneyDecimal
     items: list[OrderItemRead] = Field(default_factory=list)
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
-    @field_serializer("total_amount", "amount_paid", "amount_due")
+    @field_serializer(
+        "total_amount",
+        "amount_paid",
+        "amount_due",
+        "outsourcing_revenue_total",
+        "outsourcing_cost_total",
+        "outsourcing_paid_total",
+        "outsourcing_pending_total",
+        "estimated_result",
+    )
     def serialize_money(self, value: Decimal) -> str:
         return f"{value:.2f}"
 

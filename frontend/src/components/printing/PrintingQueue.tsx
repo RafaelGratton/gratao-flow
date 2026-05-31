@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, Clock3, Layers3, PlayCircle, Stamp } from "l
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OrderDetails, OrderItem, OrderSummary } from "@/components/orders/types";
 import { PrintActionModal } from "@/components/printing/PrintActionModal";
-import { getItemPrintingService, itemFlowLabel, itemNeedsStage } from "@/components/production/helpers";
+import { activeOrderItems, getItemPrintingService, itemFlowLabel, itemNeedsStage } from "@/components/production/helpers";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
@@ -96,7 +96,7 @@ export function PrintingQueue() {
   const rows = useMemo(
     () =>
       orders.flatMap((order) =>
-        order.items
+        activeOrderItems(order)
           .map((item, index) => ({ order, item, itemNumber: index + 1 }))
           .filter(
             (row) =>

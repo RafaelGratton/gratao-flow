@@ -1,6 +1,6 @@
 "use client";
 
-import { BadgeDollarSign, HandCoins, PackageCheck, Truck } from "lucide-react";
+import { CheckCircle2, HandCoins, Truck, WalletCards } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OrderDetails, OrderItem, OrderOutsourcing, OrderSummary, Outsourcer } from "@/components/orders/types";
 import { OutsourcingAvailableOrders, type AvailableOutsourcingItem } from "@/components/outsourcing/OutsourcingAvailableOrders";
@@ -8,7 +8,7 @@ import { OutsourcingCreateModal } from "@/components/outsourcing/OutsourcingCrea
 import { OutsourcingList } from "@/components/outsourcing/OutsourcingList";
 import { OutsourcingReturnModal } from "@/components/outsourcing/OutsourcingReturnModal";
 import { OutsourcerQuickCreateModal } from "@/components/outsourcing/OutsourcerQuickCreateModal";
-import { itemHasService, itemReadyForOutsourcing } from "@/components/production/helpers";
+import { activeOrderItems, itemHasService, itemReadyForOutsourcing } from "@/components/production/helpers";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { api } from "@/lib/api";
@@ -78,7 +78,7 @@ export function OutsourcingPanel() {
       orders.flatMap((order) =>
         ["delivered", "cancelled"].includes(order.production_status)
           ? []
-          : order.items
+          : activeOrderItems(order)
               .filter(itemReadyForOutsourcing)
               .map((item) => ({
                 order,
@@ -94,10 +94,12 @@ export function OutsourcingPanel() {
     () =>
       orders
         .flatMap((order) =>
-          order.outsourcings.map((outsourcing) => ({
-            order,
-            outsourcing
-          }))
+          order.outsourcings
+            .filter((outsourcing) => outsourcing.status !== "cancelled")
+            .map((outsourcing) => ({
+              order,
+              outsourcing
+            }))
         )
         .sort((a, b) => new Date(b.outsourcing.sent_at).getTime() - new Date(a.outsourcing.sent_at).getTime()),
     [orders]
@@ -106,12 +108,11 @@ export function OutsourcingPanel() {
   const financialSummary = useMemo(() => {
     return outsourcingItems.reduce(
       (totals, item) => ({
-        customer: totals.customer + Number(item.outsourcing.customer_total),
-        payout: totals.payout + Number(item.outsourcing.outsourcer_total),
-        profit: totals.profit + Number(item.outsourcing.profit_total),
+        cost: totals.cost + Number(item.outsourcing.outsourcer_total),
+        paid: totals.paid + (item.outsourcing.payout_status === "paid" ? Number(item.outsourcing.outsourcer_total) : 0),
         pending: totals.pending + (item.outsourcing.payout_status === "pending" ? Number(item.outsourcing.outsourcer_total) : 0)
       }),
-      { customer: 0, payout: 0, profit: 0, pending: 0 }
+      { cost: 0, paid: 0, pending: 0 }
     );
   }, [outsourcingItems]);
 
@@ -139,9 +140,9 @@ export function OutsourcingPanel() {
       <div className="grid gap-4 md:grid-cols-4">
         {[
           { label: "Itens disponiveis", value: availableItems.length, icon: Truck, money: false },
-          { label: "Cobrado", value: financialSummary.customer, icon: BadgeDollarSign, money: true },
-          { label: "Repasse", value: financialSummary.payout, icon: HandCoins, money: true },
-          { label: "Lucro", value: financialSummary.profit, icon: PackageCheck, money: true }
+          { label: "Custo terceirizado", value: financialSummary.cost, icon: HandCoins, money: true },
+          { label: "Repasse pendente", value: financialSummary.pending, icon: WalletCards, money: true },
+          { label: "Repasse pago", value: financialSummary.paid, icon: CheckCircle2, money: true }
         ].map((item) => (
           <Card key={item.label}>
             <CardContent className="flex items-center gap-4">

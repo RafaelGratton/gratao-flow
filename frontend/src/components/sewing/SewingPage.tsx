@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, Clock3, LockKeyhole, RefreshCw, Shirt } from
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OrderDetails, OrderItem, OrderSummary } from "@/components/orders/types";
 import {
+  activeOrderItems,
   buildOperationalQueueItem,
   itemNeedsStage,
   priorityLabel,
@@ -82,7 +83,7 @@ export function SewingPage() {
     () =>
       orders
         .flatMap((order) =>
-          order.items.map((item, index) => buildOperationalQueueItem(order, item, index + 1))
+          activeOrderItems(order).map((item, index) => buildOperationalQueueItem(order, item, index + 1))
         )
         .filter((row) => itemNeedsStage(row.item, "sew") && row.balances.missingSewing > 0)
         .sort((a, b) => {

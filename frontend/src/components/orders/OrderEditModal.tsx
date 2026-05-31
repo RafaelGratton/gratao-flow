@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Loader2, Plus, Trash2, X } from "lucide-react";
+import { Ban, Check, Loader2, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { SelectHTMLAttributes } from "react";
 import type { Client } from "@/components/clients/types";
@@ -8,6 +8,7 @@ import type { CatalogItem, OperationalPriority, OrderDetails, SewingMode } from 
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ApiError, api } from "@/lib/api";
+import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type OrderEditModalProps = {
@@ -26,6 +27,7 @@ type EditItem = {
   operational_priority: OperationalPriority;
   sewing_mode: SewingMode;
   service_ids: number[];
+  service_prices: Record<string, string>;
   notes: string;
 };
 
@@ -53,6 +55,7 @@ function emptyItem(): EditItem {
     operational_priority: "normal",
     sewing_mode: "internal",
     service_ids: [],
+    service_prices: {},
     notes: ""
   };
 }
@@ -69,6 +72,9 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
     order.allow_printing_exception
   );
   const [items, setItems] = useState<EditItem[]>(() => orderToItems(order));
+  const [cancelTarget, setCancelTarget] = useState<EditItem | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancellingItem, setCancellingItem] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -76,6 +82,8 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
     setNotes(order.notes ?? "");
     setAllowPrintingException(order.allow_printing_exception);
     setItems(orderToItems(order));
+    setCancelTarget(null);
+    setCancelReason("");
     setError(null);
   }, [open, order]);
 
@@ -127,15 +135,18 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
   const estimatedTotal = useMemo(() => {
     return items.reduce((orderTotal, item) => {
       const quantity = Number(item.quantity_requested || 0);
-      const itemTotal = catalogs.services
-        .filter((service) => item.service_ids.includes(service.id))
-        .reduce(
-          (total, service) => total + Number(service.price_per_unit ?? 0) * quantity,
-          0
-        );
+      const itemTotal = item.service_ids.reduce(
+        (total, serviceId) => {
+          const service = catalogs.services.find((candidate) => candidate.id === serviceId);
+          return total + servicePriceForItem(order, service, item, serviceId) * quantity;
+        },
+        0
+      );
       return orderTotal + itemTotal;
     }, 0);
-  }, [catalogs.services, items]);
+  }, [catalogs.services, items, order]);
+  const amountPaid = Number(order.amount_paid);
+  const paidAboveNewTotal = amountPaid > estimatedTotal;
 
   if (!open) return null;
 
@@ -157,7 +168,13 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
     updateItem(index, {
       service_ids: selected
         ? item.service_ids.filter((id) => id !== serviceId)
-        : [...item.service_ids, serviceId]
+        : [...item.service_ids, serviceId],
+      service_prices: selected
+        ? item.service_prices
+        : {
+            ...item.service_prices,
+            [serviceId]: item.service_prices[String(serviceId)] ?? defaultMoneyInput(service?.price_per_unit)
+          }
     });
   }
 
@@ -173,6 +190,41 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
     });
   }
 
+  function addItem() {
+    setItems((current) => [
+      ...current,
+      emptyItem()
+    ]);
+  }
+
+  async function cancelItem() {
+    if (!cancelTarget?.id) return;
+    if (!cancelReason.trim()) {
+      setError("Informe o motivo do cancelamento do item.");
+      return;
+    }
+    setCancellingItem(true);
+    setError(null);
+    try {
+      const updated = await api.post<OrderDetails>(
+        `/orders/${order.id}/items/${cancelTarget.id}/cancel`,
+        { reason: cancelReason.trim() }
+      );
+      onUpdated(updated);
+      setItems(orderToItems(updated));
+      setCancelTarget(null);
+      setCancelReason("");
+    } catch (requestError) {
+      setError(
+        requestError instanceof ApiError || requestError instanceof Error
+          ? requestError.message
+          : "Nao foi possivel cancelar o item."
+      );
+    } finally {
+      setCancellingItem(false);
+    }
+  }
+
   function isSewingService(serviceId: number) {
     return catalogs.services.some(
       (service) => service.id === serviceId && service.type === "confeccao"
@@ -184,10 +236,16 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
     setError(null);
 
     try {
+      const validationError = validateOrderEdit(clientId, items);
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
       const payloadItems = items.map((item) => {
         const serviceIds = item.service_ids.filter(
           (serviceId) => !(item.sewing_mode === "outsourced" && isSewingService(serviceId))
         );
+        const servicePrices = buildServicePrices(item, serviceIds, catalogs.services, order);
         return {
           id: item.id,
           product_id: Number(item.product_id),
@@ -202,7 +260,8 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
                 ? "internal"
                 : null,
           notes: item.notes.trim() ? item.notes.trim() : null,
-          service_ids: serviceIds
+          service_ids: serviceIds,
+          service_prices: servicePrices
         };
       });
 
@@ -250,12 +309,8 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
           <div className="space-y-5">
             {locked ? (
               <div className="rounded-md border border-warning/30 bg-warning/10 p-4 text-sm font-semibold text-ink">
-                Esta OS ja possui movimentacoes. Apenas campos seguros podem ser alterados.
-              </div>
-            ) : null}
-            {locked ? (
-              <div className="rounded-md border border-accent/20 bg-accent-soft/40 p-4 text-sm font-semibold text-ink">
-                Voce pode aumentar a quantidade do pedido. Reducoes abaixo do que ja foi produzido nao sao permitidas.
+                OS com movimento permite adicionar novos itens e ajustar quantidades com seguranca.
+                Itens movimentados nao sao apagados; podem ser cancelados.
               </div>
             ) : null}
             {error ? (
@@ -302,23 +357,31 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
             <div className="space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-lg font-black text-ink">Itens</h3>
-                {!locked ? (
-                  <Button type="button" variant="secondary" onClick={() => setItems((current) => [...current, emptyItem()])}>
-                    <Plus size={18} />
-                    Adicionar item
-                  </Button>
-                ) : null}
+                <Button type="button" variant="secondary" onClick={addItem} disabled={saving || loading}>
+                  <Plus size={18} />
+                  Adicionar item
+                </Button>
               </div>
 
               {items.map((item, index) => {
-                const dangerDisabled = loading || saving || locked;
+                const moved = item.id !== null && itemHasMovements(order, item.id);
+                const dangerDisabled = loading || saving || moved;
+                const productDisabled = loading || saving || moved;
                 const quantityFloor = movementFloor(order, item);
                 const outsourced = item.sewing_mode === "outsourced";
+                const itemLabel = item.id === null ? "Novo item" : `Item ${index + 1}`;
                 return (
                   <div key={item.id ?? `new-${index}`} className="rounded-lg border border-line bg-[#FCFAF6] p-4">
                     <div className="mb-4 flex items-center justify-between gap-3">
-                      <h4 className="text-base font-black text-ink">Item {index + 1}</h4>
-                      {!locked ? (
+                      <div>
+                        <h4 className="text-base font-black text-ink">{itemLabel}</h4>
+                        {moved ? (
+                          <p className="mt-1 text-xs font-semibold text-muted">
+                            Quantidade minima permitida: {quantityFloor} peca(s).
+                          </p>
+                        ) : null}
+                      </div>
+                      {!moved ? (
                         <Button
                           type="button"
                           variant="ghost"
@@ -329,6 +392,20 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
                           <Trash2 size={18} />
                           Remover
                         </Button>
+                      ) : item.id ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="text-danger hover:text-danger"
+                          onClick={() => {
+                            setCancelTarget(item);
+                            setCancelReason("");
+                          }}
+                          disabled={saving}
+                        >
+                          <Ban size={18} />
+                          Cancelar item
+                        </Button>
                       ) : null}
                     </div>
 
@@ -337,14 +414,13 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
                         label="Produto"
                         value={item.product_id}
                         onChange={(event) => updateItem(index, { product_id: event.target.value })}
-                        disabled={dangerDisabled}
+                        disabled={productDisabled}
                       >
                         <option value="">Selecione...</option>
                         {catalogs.products
                           .filter(
                             (product) =>
-                              product.is_active !== false ||
-                              String(product.id) === item.product_id
+                              (product.is_active !== false || String(product.id) === item.product_id)
                           )
                           .map((product) => (
                             <option key={product.id} value={product.id}>
@@ -359,11 +435,17 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
                         disabled={dangerDisabled}
                       >
                         <option value="">Selecione...</option>
-                        {catalogs.sizes.map((size) => (
-                          <option key={size.id} value={size.id}>
-                            {size.label}
-                          </option>
-                        ))}
+                        {catalogs.sizes
+                          .filter(
+                            (size) =>
+                              size.is_active !== false || String(size.id) === item.size_id
+                          )
+                          .map((size) => (
+                            <option key={size.id} value={size.id}>
+                              {size.label}
+                              {size.is_active === false ? " (inativo)" : ""}
+                            </option>
+                          ))}
                       </SelectField>
                       <Input
                         label="Cor"
@@ -374,7 +456,7 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
                       <Input
                         label="Quantidade"
                         type="number"
-                        min={locked ? quantityFloor : 1}
+                        min={moved ? quantityFloor : 1}
                         value={item.quantity_requested}
                         onChange={(event) =>
                           updateItem(index, { quantity_requested: Number(event.target.value) })
@@ -469,6 +551,58 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
                         );
                       })}
                     </div>
+                    {item.service_ids.length > 0 ? (
+                      <div className="mt-4 space-y-3 rounded-md border border-line bg-white p-4">
+                        <div className="grid gap-2 text-xs font-bold uppercase tracking-[0.12em] text-muted md:grid-cols-[1fr_160px_150px]">
+                          <span>Servico</span>
+                          <span>Preco unitario</span>
+                          <span className="md:text-right">Subtotal</span>
+                        </div>
+                        {item.service_ids
+                          .map((serviceId) =>
+                            catalogs.services.find((service) => service.id === serviceId)
+                          )
+                          .filter((service): service is CatalogItem => Boolean(service))
+                          .map((service) => {
+                            const unitPrice =
+                              item.service_prices[String(service.id)] ??
+                              defaultMoneyInput(service.price_per_unit);
+                            const subtotal =
+                              parseMoneyInput(unitPrice) *
+                              Number(item.quantity_requested || 0);
+                            return (
+                              <div
+                                key={service.id}
+                                className="grid items-end gap-2 md:grid-cols-[1fr_160px_150px]"
+                              >
+                                <div>
+                                  <p className="text-sm font-black text-ink">{service.name}</p>
+                                  <p className="mt-1 text-xs font-semibold text-muted">
+                                    Preco sugerido: {formatCurrency(service.price_per_unit ?? "0")}
+                                  </p>
+                                </div>
+                                <Input
+                                  label="Preco unitario"
+                                  inputMode="decimal"
+                                  value={unitPrice}
+                                  onChange={(event) =>
+                                    updateItem(index, {
+                                      service_prices: {
+                                        ...item.service_prices,
+                                        [service.id]: event.target.value
+                                      }
+                                    })
+                                  }
+                                  disabled={loading || saving}
+                                />
+                                <p className="pb-3 text-sm font-black text-ink md:text-right">
+                                  {formatCurrency(subtotal)}
+                                </p>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}
@@ -485,11 +619,21 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
               Permitir excecao de serigrafia
             </label>
 
-            {!locked ? (
+            <div className="rounded-md border border-line bg-white p-4">
               <p className="text-sm font-black text-ink">
-                Total estimado: R$ {estimatedTotal.toFixed(2).replace(".", ",")}
+                Total estimado dos itens ativos: {formatCurrency(estimatedTotal)}
               </p>
-            ) : null}
+              {order.payments.length > 0 ? (
+                <p className="mt-2 text-sm font-semibold text-warning">
+                  Esta OS ja possui pagamento registrado. Alterar precos ira recalcular o saldo financeiro.
+                </p>
+              ) : null}
+              {paidAboveNewTotal ? (
+                <p className="mt-2 text-sm font-semibold text-warning">
+                  Valor pago supera o novo total. O saldo a receber ficara zerado.
+                </p>
+              ) : null}
+            </div>
           </div>
         </div>
 
@@ -503,12 +647,50 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
           </Button>
         </div>
       </div>
+      {cancelTarget ? (
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-nav/50 p-4">
+          <div className="w-full max-w-lg rounded-lg border border-line bg-white shadow-soft">
+            <div className="border-b border-line px-5 py-4">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-accent-dark">
+                Cancelar item movimentado
+              </p>
+              <h3 className="mt-1 text-lg font-black text-ink">Informe o motivo</h3>
+            </div>
+            <div className="space-y-4 p-5">
+              <textarea
+                className="min-h-28 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink shadow-insetline transition focus:focus-ring"
+                value={cancelReason}
+                onChange={(event) => setCancelReason(event.target.value)}
+                placeholder="Motivo do cancelamento"
+              />
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setCancelTarget(null)}
+                  disabled={cancellingItem}
+                >
+                  Voltar
+                </Button>
+                <Button
+                  type="button"
+                  variant="danger"
+                  onClick={() => void cancelItem()}
+                  isLoading={cancellingItem}
+                >
+                  Cancelar item
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function orderToItems(order: OrderDetails): EditItem[] {
-  return order.items.map((item) => ({
+  return order.items.filter((item) => !item.is_cancelled).map((item) => ({
     id: item.id,
     product_id: String(item.product_id),
     size_id: String(item.size_id),
@@ -517,6 +699,12 @@ function orderToItems(order: OrderDetails): EditItem[] {
     operational_priority: item.operational_priority,
     sewing_mode: item.sewing_mode ?? "internal",
     service_ids: item.services.map((service) => service.service_id),
+    service_prices: Object.fromEntries(
+      item.services.map((service) => [
+        service.service_id,
+        defaultMoneyInput(service.unit_price)
+      ])
+    ),
     notes: item.notes ?? ""
   }));
 }
@@ -538,6 +726,22 @@ function orderHasMovements(order: OrderDetails): boolean {
   );
 }
 
+function itemHasMovements(order: OrderDetails, itemId: number): boolean {
+  const item = order.items.find((orderItem) => orderItem.id === itemId);
+  if (!item) return false;
+  return (
+    item.quantity_cut > 0 ||
+    item.quantity_printed > 0 ||
+    item.quantity_sewn > 0 ||
+    item.quantity_delivered > 0 ||
+    item.delivered_at !== null ||
+    order.production_events.some((event) => event.order_item_id === item.id) ||
+    order.outsourcings.some(
+      (outsourcing) => outsourcing.order_item_id === item.id && outsourcing.status !== "cancelled"
+    )
+  );
+}
+
 function movementFloor(order: OrderDetails, item: EditItem): number {
   const snapshotItem = item.id ? order.items.find((orderItem) => orderItem.id === item.id) : null;
   if (!snapshotItem) return 1;
@@ -554,6 +758,85 @@ function movementFloor(order: OrderDetails, item: EditItem): number {
     snapshotItem.quantity_delivered,
     outsourcedMax
   );
+}
+
+function validateOrderEdit(clientId: string, items: EditItem[]): string | null {
+  if (!Number(clientId)) {
+    return "Selecione um cliente.";
+  }
+  if (items.length === 0) {
+    return "A OS precisa ter pelo menos um item.";
+  }
+  for (const [index, item] of items.entries()) {
+    const label = `Item ${index + 1}`;
+    if (!Number(item.product_id)) {
+      return `${label}: selecione um produto.`;
+    }
+    if (!Number(item.size_id)) {
+      return `${label}: selecione um tamanho.`;
+    }
+    if (!item.color.trim()) {
+      return `${label}: informe a cor.`;
+    }
+    if (!Number.isInteger(Number(item.quantity_requested)) || Number(item.quantity_requested) <= 0) {
+      return `${label}: informe uma quantidade valida.`;
+    }
+    if (item.service_ids.length === 0) {
+      return `${label}: selecione pelo menos um servico.`;
+    }
+  }
+  return null;
+}
+
+function servicePriceForItem(
+  order: OrderDetails,
+  catalogService: CatalogItem | undefined,
+  item: EditItem,
+  serviceId: number
+) {
+  const manualPrice = item.service_prices[String(serviceId)];
+  if (manualPrice !== undefined) return parseMoneyInput(manualPrice);
+  const snapshotItem = item.id ? order.items.find((orderItem) => orderItem.id === item.id) : null;
+  const snapshotService = snapshotItem?.services.find((service) => service.service_id === serviceId);
+  if (snapshotService) return Number(snapshotService.unit_price);
+  return Number(catalogService?.price_per_unit ?? 0);
+}
+
+function buildServicePrices(
+  item: EditItem,
+  serviceIds: number[],
+  catalogServices: CatalogItem[],
+  order: OrderDetails
+) {
+  return Object.fromEntries(
+    serviceIds.map((serviceId) => {
+      const catalogService = catalogServices.find((service) => service.id === serviceId);
+      const rawPrice =
+        item.service_prices[String(serviceId)] ??
+        defaultMoneyInput(
+          order.items
+            .find((orderItem) => orderItem.id === item.id)
+            ?.services.find((service) => service.service_id === serviceId)?.unit_price ??
+            catalogService?.price_per_unit
+        );
+      const price = parseMoneyInput(rawPrice);
+      if (!Number.isFinite(price) || price < 0) {
+        throw new Error("Informe um preco valido para todos os servicos selecionados.");
+      }
+      return [serviceId, price.toFixed(2)];
+    })
+  );
+}
+
+function parseMoneyInput(value: string | number | undefined): number {
+  const normalized = String(value ?? "0").trim().replace(/\s/g, "").replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function defaultMoneyInput(value: string | number | undefined): string {
+  const parsed = Number(value ?? 0);
+  return (Number.isFinite(parsed) ? parsed : 0).toFixed(2).replace(".", ",");
 }
 
 type SelectFieldProps = SelectHTMLAttributes<HTMLSelectElement> & {

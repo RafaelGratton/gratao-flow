@@ -36,7 +36,7 @@ export function MoneySummary({
 }) {
   return (
     <ReportGrid>
-      <ReportField label="Total" value={formatCurrency(total)} />
+      <ReportField label="Total do pedido" value={formatCurrency(total)} />
       <ReportField label="Pago" value={formatCurrency(paid)} />
       <ReportField label="Saldo pendente" value={formatCurrency(due)} />
     </ReportGrid>
@@ -100,7 +100,7 @@ export function ReportItemsList({ items }: { items: ReportItem[] }) {
             <ReportField label="Entregue" value={item.quantity_delivered} />
           </div>
           <div className="mt-3">
-            <ServicesList services={item.services} />
+            <ServicesList services={[...item.services, ...(item.outsourcing_services ?? [])]} />
           </div>
         </div>
       ))}

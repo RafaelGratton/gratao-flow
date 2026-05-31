@@ -7,6 +7,8 @@ from app.models.order import Order, OrderItem
 
 
 def calculate_item_delivery_status(item: OrderItem, order: Order) -> DeliveryStatus:
+    if item.is_cancelled:
+        return item.delivery_status
     if item.quantity_delivered >= item.quantity_requested:
         return DeliveryStatus.DELIVERED
     if item.quantity_delivered > 0:
@@ -17,6 +19,9 @@ def calculate_item_delivery_status(item: OrderItem, order: Order) -> DeliverySta
 
 
 def sync_item_delivery_status(item: OrderItem, order: Order) -> None:
+    if item.is_cancelled:
+        item.available_since = None
+        return
     available_quantity = available_to_deliver(item, order)
     next_status = calculate_item_delivery_status(item, order)
     item.delivery_status = next_status
@@ -30,7 +35,8 @@ def sync_item_delivery_status(item: OrderItem, order: Order) -> None:
 
 def sync_order_items_delivery_status(order: Order) -> None:
     for item in order.items:
-        sync_item_delivery_status(item, order)
+        if not item.is_cancelled:
+            sync_item_delivery_status(item, order)
 
 
 def item_is_ready_for_delivery(item: OrderItem, order: Order) -> bool:
@@ -43,6 +49,8 @@ def available_to_deliver(item: OrderItem, order: Order) -> int:
 
 
 def ready_to_deliver_quantity(item: OrderItem, order: Order) -> int:
+    if item.is_cancelled:
+        return 0
     if item.sewing_mode == SewingMode.OUTSOURCED:
         ready_quantity = _outsourced_returned_quantity(item, order)
     elif _item_has_service(item, "confeccao"):

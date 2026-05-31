@@ -20,7 +20,8 @@ class Client(Base):
     )
 
     orders = relationship("Order", back_populates="client")
+    client_order_groups = relationship("ClientOrderGroup", back_populates="client")
 
     @property
     def can_delete(self) -> bool:
-        return len(self.orders) == 0
+        return len(self.orders) == 0 and len(self.client_order_groups) == 0
