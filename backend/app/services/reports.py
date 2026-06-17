@@ -429,7 +429,7 @@ def derive_order_group_production_status(orders: Sequence[Order]) -> ProductionS
 def generate_internal_order_report_pdf(report: InternalOrderReport) -> bytes:
     story = [
         *_document_header(
-            title="Gratao Flow",
+            title="Gratao Uniformes",
             subtitle=f"Relatorio interno da OS #{report.order_id}",
             badges=[
                 (
@@ -553,7 +553,7 @@ def generate_internal_order_group_report_pdf(report: InternalOrderGroupReport) -
     events = [event for order in report.orders for event in order.production_events]
     story = [
         *_document_header(
-            title="Gratao Flow",
+            title="Gratao Uniformes",
             subtitle=f"Relatorio interno do Pedido de Cliente #{report.group_id}",
             badges=[
                 (
@@ -649,7 +649,7 @@ def generate_weekly_closing_report_pdf(closing: WeeklyClosing) -> bytes:
 
     story = [
         *_document_header(
-            title="Gratao Flow",
+            title="Gratao Uniformes",
             subtitle=f"Fechamento {employee_name} - {period_text}",
             badges=[(f"Status: {status_label}", _status_tone(closing.status.value))],
         ),
@@ -784,7 +784,7 @@ def _build_pdf(story: list[Any]) -> bytes:
             leftMargin=PAGE_MARGIN,
             topMargin=PAGE_MARGIN,
             bottomMargin=PAGE_MARGIN,
-            title="Gratao Flow",
+            title="Gratao Uniformes",
         )
         document.build(story, onFirstPage=_draw_footer, onLaterPages=_draw_footer)
         buffer.seek(0)
