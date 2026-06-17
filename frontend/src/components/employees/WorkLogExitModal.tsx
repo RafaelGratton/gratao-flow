@@ -35,8 +35,13 @@ function roundHours(value: number) {
   return Math.round(value * 100) / 100;
 }
 
+function currentTime24() {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
+
 export function WorkLogExitModal({ workLog, employee, onClose, onSaved }: Props) {
-  const [clockOut, setClockOut] = useState("16:00");
+  const [clockOut, setClockOut] = useState(currentTime24());
   const [breakHours, setBreakHours] = useState("1");
   const [paymentMode, setPaymentMode] = useState<WorkPaymentMode>("full_day");
   const [notes, setNotes] = useState("");
@@ -45,7 +50,7 @@ export function WorkLogExitModal({ workLog, employee, onClose, onSaved }: Props)
 
   useEffect(() => {
     if (workLog) {
-      setClockOut("16:00");
+      setClockOut(currentTime24());
       setBreakHours(workLog.break_hours);
       setPaymentMode(workLog.payment_mode);
       setNotes(workLog.notes ?? "");

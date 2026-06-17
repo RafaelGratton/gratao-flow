@@ -39,20 +39,23 @@ type DeliveryOrderGroup = {
   orderId: number;
   client: DeliveryItem["client"];
   items: DeliveryItem[];
+  allItems: DeliveryItem[];
   productionPaused: boolean;
   requested: number;
   ready: number;
   available: number;
   delivered: number;
   remaining: number;
+  fullAvailable: number;
+  fullRemaining: number;
+  canComplete: boolean;
   operationalStatus: DeliveryOperationalStatus;
   blocked: boolean;
   blockedItems: number;
   waitingDays: number;
 };
 
-const WITHDRAWAL_PROOF_MESSAGE =
-  "Informe quem retirou e um documento ou contato para registrar a entrega.";
+const WITHDRAWAL_PERSON_MESSAGE = "Informe quem retirou para registrar a entrega.";
 
 const queueTabs: Array<{ value: DeliveryQueueStatus; label: string }> = [
   { value: "ready_for_pickup", label: "Prontos para retirada" },
@@ -94,6 +97,7 @@ export function DeliveriesPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [selected, setSelected] = useState<DeliveryItem | null>(null);
+  const [completeGroup, setCompleteGroup] = useState<DeliveryOrderGroup | null>(null);
   const [proof, setProof] = useState<{ item: DeliveryItem; entry: DeliveryItem["history"][number] } | null>(null);
   const [activeTab, setActiveTab] = useState<DeliveryQueueStatus>("ready_for_pickup");
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(() => new Set());
@@ -174,6 +178,7 @@ export function DeliveriesPage() {
           }
           return a.order_item_id - b.order_item_id;
         });
+        const allItems = items.filter((item) => item.order_id === sortedItems[0].order_id);
         const blockedItems = sortedItems.filter((item) =>
           isBlocked(item, clientWaitingCount.get(item.client.id) ?? 0)
         ).length;
@@ -184,17 +189,28 @@ export function DeliveriesPage() {
               : current,
           sortedItems[0].operational_status
         );
+        const fullAvailable = allItems.reduce((total, item) => total + item.quantity_available_to_deliver, 0);
+        const fullRemaining = allItems.reduce((total, item) => total + item.quantity_remaining, 0);
+        const canComplete =
+          fullRemaining > 0 &&
+          fullAvailable === fullRemaining &&
+          !allItems.some((item) => item.production_paused) &&
+          allItems.every((item) => item.queue_status === "delivered" || item.quantity_available_to_deliver === item.quantity_remaining);
 
         return {
           orderId: sortedItems[0].order_id,
           client: sortedItems[0].client,
           items: sortedItems,
+          allItems,
           productionPaused: sortedItems.some((item) => item.production_paused),
           requested: sortedItems.reduce((total, item) => total + item.quantity_requested, 0),
           ready: sortedItems.reduce((total, item) => total + item.quantity_ready_total, 0),
           available: sortedItems.reduce((total, item) => total + item.quantity_available_to_deliver, 0),
           delivered: sortedItems.reduce((total, item) => total + item.quantity_delivered, 0),
           remaining: sortedItems.reduce((total, item) => total + item.quantity_remaining, 0),
+          fullAvailable,
+          fullRemaining,
+          canComplete,
           operationalStatus,
           blocked: blockedItems > 0,
           blockedItems,
@@ -374,6 +390,7 @@ export function DeliveriesPage() {
                   onToggle={() => toggleOrder(group.orderId)}
                   clientWaitingCount={clientWaitingCount}
                   onRegister={(item) => setSelected(item)}
+                  onComplete={() => setCompleteGroup(group)}
                   onProof={(item, entry) => setProof({ item, entry })}
                 />
               ))}
@@ -388,6 +405,16 @@ export function DeliveriesPage() {
         onSaved={replaceItem}
         onError={setError}
       />
+      <CompleteOrderDeliveryModal
+        group={completeGroup}
+        onClose={() => setCompleteGroup(null)}
+        onSaved={(orderId) => {
+          setCompleteGroup(null);
+          setSuccess(`Entrega completa registrada na OS #${orderId}.`);
+          void loadDeliveries();
+        }}
+        onError={setError}
+      />
       <DeliveryProofModal proof={proof} onClose={() => setProof(null)} />
     </div>
   );
@@ -399,6 +426,7 @@ function DeliveryOrderCard({
   onToggle,
   clientWaitingCount,
   onRegister,
+  onComplete,
   onProof
 }: {
   group: DeliveryOrderGroup;
@@ -406,6 +434,7 @@ function DeliveryOrderCard({
   onToggle: () => void;
   clientWaitingCount: Map<number, number>;
   onRegister: (item: DeliveryItem) => void;
+  onComplete: () => void;
   onProof: (item: DeliveryItem, entry: DeliveryItem["history"][number]) => void;
 }) {
   const itemLabel = group.items.length === 1 ? "item nesta aba" : "itens nesta aba";
@@ -456,10 +485,16 @@ function DeliveryOrderCard({
           <p className="text-xs font-semibold text-muted">{group.delivered} ja entregue{group.delivered === 1 ? "" : "s"}</p>
         </div>
 
-        <Button type="button" variant="secondary" onClick={onToggle} aria-expanded={expanded}>
-          {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          Ver itens
-        </Button>
+        <div className="flex flex-col gap-2">
+          <Button type="button" disabled={!group.canComplete} onClick={onComplete}>
+            <PackageCheck size={16} />
+            Entregar OS completa
+          </Button>
+          <Button type="button" variant="secondary" onClick={onToggle} aria-expanded={expanded}>
+            {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            Ver itens
+          </Button>
+        </div>
       </div>
 
       {expanded ? (
@@ -695,6 +730,159 @@ function ProofLine({ label, value }: { label: string; value: string | number }) 
   );
 }
 
+function CompleteOrderDeliveryModal({
+  group,
+  onClose,
+  onSaved,
+  onError
+}: {
+  group: DeliveryOrderGroup | null;
+  onClose: () => void;
+  onSaved: (orderId: number, items: DeliveryItem[]) => void;
+  onError: (message: string | null) => void;
+}) {
+  const [pickedUpBy, setPickedUpBy] = useState("");
+  const [pickupDocument, setPickupDocument] = useState("");
+  const [deliveryNotes, setDeliveryNotes] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (group) {
+      setPickedUpBy("");
+      setPickupDocument("");
+      setDeliveryNotes("");
+      setNotes("");
+    }
+  }, [group]);
+
+  if (!group) return null;
+
+  const deliverableItems = group.allItems.filter((item) => item.quantity_remaining > 0);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!group) return;
+    if (!group.canComplete) {
+      onError("Nem todos os itens da OS estao prontos para entrega completa.");
+      return;
+    }
+    if (!pickedUpBy.trim()) {
+      onError(WITHDRAWAL_PERSON_MESSAGE);
+      return;
+    }
+
+    setSaving(true);
+    onError(null);
+    try {
+      const updated = await api.post<DeliveryItem[]>(`/deliveries/orders/${group.orderId}/register-complete`, {
+        picked_up_by: pickedUpBy.trim(),
+        pickup_document: pickupDocument.trim() || null,
+        delivery_notes: deliveryNotes.trim() || null,
+        notes: notes.trim() || null
+      });
+      onSaved(group.orderId, updated);
+    } catch (requestError) {
+      onError(requestError instanceof Error ? requestError.message : "Nao foi possivel registrar a entrega completa.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/35 p-4">
+      <form onSubmit={handleSubmit} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-line bg-white shadow-soft">
+        <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent-dark">Entrega completa</p>
+            <h2 className="mt-1 text-xl font-black text-ink">OS #{group.orderId}</h2>
+            <p className="mt-1 text-sm font-semibold text-muted">{group.client.name}</p>
+          </div>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            <Undo2 size={16} />
+            Voltar
+          </Button>
+        </div>
+
+        <div className="space-y-4 p-5">
+          <div className="grid gap-3 md:grid-cols-3">
+            <Metric label="Itens" value={deliverableItems.length} />
+            <Metric label="Disponivel" value={group.fullAvailable} />
+            <Metric label="Falta entregar" value={group.fullRemaining} />
+          </div>
+
+          <div className="rounded-md border border-line bg-[#FCFAF6] p-3">
+            <p className="text-sm font-black text-ink">Itens que serao entregues</p>
+            <div className="mt-3 space-y-2">
+              {deliverableItems.map((item) => (
+                <div key={item.order_item_id} className="flex flex-col gap-1 rounded-md border border-line bg-white p-3 text-sm md:flex-row md:items-center md:justify-between">
+                  <span className="font-semibold text-ink">
+                    {item.product.name} / tamanho {item.size.label} / {item.color || "sem cor"}
+                  </span>
+                  <span className="text-xs font-bold uppercase tracking-[0.1em] text-muted">
+                    {item.quantity_remaining} pecas
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="block space-y-2">
+              <span className="text-sm font-semibold text-ink">Quem retirou</span>
+              <input
+                className="h-12 w-full rounded-md border border-line bg-white px-3 text-sm text-ink shadow-insetline transition focus:focus-ring"
+                type="text"
+                value={pickedUpBy}
+                onChange={(event) => setPickedUpBy(event.target.value)}
+                required
+              />
+            </label>
+
+            <label className="block space-y-2">
+              <span className="text-sm font-semibold text-ink">Documento ou contato (opcional)</span>
+              <input
+                className="h-12 w-full rounded-md border border-line bg-white px-3 text-sm text-ink shadow-insetline transition focus:focus-ring"
+                type="text"
+                value={pickupDocument}
+                onChange={(event) => setPickupDocument(event.target.value)}
+              />
+            </label>
+          </div>
+
+          <label className="block space-y-2">
+            <span className="text-sm font-semibold text-ink">Observacao da retirada</span>
+            <textarea
+              className="min-h-24 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink shadow-insetline transition focus:focus-ring"
+              value={deliveryNotes}
+              onChange={(event) => setDeliveryNotes(event.target.value)}
+            />
+          </label>
+
+          <label className="block space-y-2">
+            <span className="text-sm font-semibold text-ink">Observacao interna</span>
+            <textarea
+              className="min-h-24 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink shadow-insetline transition focus:focus-ring"
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+            />
+          </label>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-line px-5 py-4">
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button type="submit" isLoading={saving} disabled={!group.canComplete}>
+            <PackageCheck size={16} />
+            Entregar OS completa
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function DeliveryModal({
   item,
   onClose,
@@ -741,8 +929,8 @@ function DeliveryModal({
       onError(`Quantidade entregue excede o disponivel agora. Maximo: ${item.quantity_available_to_deliver}.`);
       return;
     }
-    if (!pickedUpBy.trim() || !pickupDocument.trim()) {
-      onError(WITHDRAWAL_PROOF_MESSAGE);
+    if (!pickedUpBy.trim()) {
+      onError(WITHDRAWAL_PERSON_MESSAGE);
       return;
     }
 
@@ -820,13 +1008,12 @@ function DeliveryModal({
             </label>
 
             <label className="block space-y-2">
-              <span className="text-sm font-semibold text-ink">Documento ou contato</span>
+              <span className="text-sm font-semibold text-ink">Documento ou contato (opcional)</span>
               <input
                 className="h-12 w-full rounded-md border border-line bg-white px-3 text-sm text-ink shadow-insetline transition focus:focus-ring"
                 type="text"
                 value={pickupDocument}
                 onChange={(event) => setPickupDocument(event.target.value)}
-                required
               />
             </label>
           </div>

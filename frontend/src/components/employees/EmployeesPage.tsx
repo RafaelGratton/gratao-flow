@@ -46,12 +46,17 @@ export function EmployeesPage() {
     void load();
   }, [load]);
 
+  const currentWorkLogs = useMemo(
+    () => workLogs.filter((workLog) => workLog.weekly_closing_id === null),
+    [workLogs]
+  );
+
   const visibleWorkLogs = useMemo(
     () =>
       selectedEmployee
-        ? workLogs.filter((workLog) => workLog.employee_id === selectedEmployee.id)
-        : workLogs,
-    [selectedEmployee, workLogs]
+        ? currentWorkLogs.filter((workLog) => workLog.employee_id === selectedEmployee.id)
+        : currentWorkLogs,
+    [currentWorkLogs, selectedEmployee]
   );
 
   function handleEmployeeSaved(employee: Employee) {
@@ -97,7 +102,7 @@ export function EmployeesPage() {
         </div>
       ) : null}
 
-      <EmployeeSummaryCards employees={employees} workLogs={workLogs} />
+      <EmployeeSummaryCards employees={employees} workLogs={currentWorkLogs} />
       <EmployeeTable
         employees={employees}
         loading={loading}
@@ -145,7 +150,7 @@ export function EmployeesPage() {
       <WeeklyClosingCreateModal
         open={closingEmployee !== null}
         employees={employees}
-        workLogs={workLogs}
+        workLogs={currentWorkLogs}
         initialEmployeeId={closingEmployee?.id ?? null}
         onClose={() => setClosingEmployee(null)}
         onCreated={handleWeeklyClosingCreated}

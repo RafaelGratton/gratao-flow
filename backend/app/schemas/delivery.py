@@ -83,3 +83,10 @@ class DeliveryRegister(BaseModel):
     pickup_document: str | None = None
     delivery_notes: str | None = None
     notes: str | None = None
+
+
+class DeliveryRegisterCompleteOrder(BaseModel):
+    picked_up_by: str | None = None
+    pickup_document: str | None = None
+    delivery_notes: str | None = None
+    notes: str | None = None

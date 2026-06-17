@@ -14,6 +14,7 @@ from app.schemas.delivery import (
     DeliveryItemRead,
     DeliveryListRead,
     DeliveryRegister,
+    DeliveryRegisterCompleteOrder,
     DeliverySummary,
 )
 from app.services.deliveries import (
@@ -103,11 +104,10 @@ def register_delivery(
         )
 
     picked_up_by = _clean_required_text(payload.picked_up_by)
-    pickup_document = _clean_required_text(payload.pickup_document)
-    if picked_up_by is None or pickup_document is None:
+    if picked_up_by is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Informe quem retirou e um documento ou contato para registrar a entrega.",
+            detail="Informe quem retirou para registrar a entrega.",
         )
 
     available_now = available_to_deliver(item, order)
@@ -117,32 +117,18 @@ def register_delivery(
             detail=f"Quantidade entregue excede o disponivel para entrega agora ({available_now}).",
         )
 
-    item.quantity_delivered += payload.quantity
     user_name = user.name or user.email
-    item.delivery_history.append(
-        DeliveryHistory(
-            order_id=order.id,
-            quantity=payload.quantity,
-            user_id=user.id,
-            user_name_snapshot=user_name,
-            responsible=user_name,
-            picked_up_by=picked_up_by,
-            pickup_document=pickup_document,
-            delivery_notes=_clean_optional_text(payload.delivery_notes),
-            notes=_clean_optional_text(payload.notes),
-        )
-    )
-    db.add(
-        ProductionEvent(
-            order_id=order.id,
-            order_item_id=item.id,
-            event_type=ProductionEventType.DELIVERY_REGISTERED,
-            stage="delivered",
-            quantity=payload.quantity,
-            notes=_clean_optional_text(payload.delivery_notes) or _clean_optional_text(payload.notes),
-            user_id=user.id,
-            user_name_snapshot=user_name,
-        )
+    _register_delivery_for_item(
+        db=db,
+        order=order,
+        item=item,
+        quantity=payload.quantity,
+        picked_up_by=picked_up_by,
+        pickup_document=_clean_optional_text(payload.pickup_document),
+        delivery_notes=_clean_optional_text(payload.delivery_notes),
+        notes=_clean_optional_text(payload.notes),
+        user=user,
+        user_name=user_name,
     )
     sync_item_delivery_status(item, order)
     _mark_order_delivered_if_complete(db, order, payload.quantity, user)
@@ -150,6 +136,82 @@ def register_delivery(
     db.commit()
     order, item = _get_order_item_with_delivery_context(db, order_item_id)
     return _build_delivery_item(order, item)
+
+
+@router.post("/orders/{order_id}/register-complete", response_model=list[DeliveryItemRead], status_code=201)
+def register_complete_order_delivery(
+    order_id: int,
+    payload: DeliveryRegisterCompleteOrder,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> list[DeliveryItemRead]:
+    order = _get_order_with_delivery_context(db, order_id, for_update=True)
+    if order.production_paused:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A producao desta OS esta pausada. Retome a OS antes de registrar entrega.",
+        )
+
+    active_items = [item for item in order.items if not item.is_cancelled]
+    if not active_items:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Esta OS nao possui itens ativos para entrega.",
+        )
+
+    sync_order_items_delivery_status(order)
+    deliverable_items: list[tuple[OrderItem, int]] = []
+    for item in active_items:
+        quantity_remaining = max(item.quantity_requested - item.quantity_delivered, 0)
+        if quantity_remaining == 0:
+            continue
+        available_now = available_to_deliver(item, order)
+        if available_now < quantity_remaining:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Nem todos os itens da OS estao prontos para entrega completa.",
+            )
+        deliverable_items.append((item, quantity_remaining))
+
+    if not deliverable_items:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Esta OS ja esta totalmente entregue.",
+        )
+
+    picked_up_by = _clean_required_text(payload.picked_up_by)
+    if picked_up_by is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Informe quem retirou para registrar a entrega.",
+        )
+
+    user_name = user.name or user.email
+    pickup_document = _clean_optional_text(payload.pickup_document)
+    delivery_notes = _clean_optional_text(payload.delivery_notes)
+    notes = _clean_optional_text(payload.notes)
+    total_quantity = 0
+    for item, quantity in deliverable_items:
+        _register_delivery_for_item(
+            db=db,
+            order=order,
+            item=item,
+            quantity=quantity,
+            picked_up_by=picked_up_by,
+            pickup_document=pickup_document,
+            delivery_notes=delivery_notes,
+            notes=notes,
+            user=user,
+            user_name=user_name,
+        )
+        sync_item_delivery_status(item, order)
+        total_quantity += quantity
+
+    _mark_order_delivered_if_complete(db, order, total_quantity, user)
+
+    db.commit()
+    order = _get_order_with_delivery_context(db, order_id)
+    return [_build_delivery_item(order, item) for item in order.items if not item.is_cancelled]
 
 
 def _get_delivery_orders(db: Session) -> list[Order]:
@@ -217,6 +279,80 @@ def _get_order_item_with_delivery_context(
     return item.order, item
 
 
+def _get_order_with_delivery_context(
+    db: Session,
+    order_id: int,
+    *,
+    for_update: bool = False,
+) -> Order:
+    query = (
+        select(Order)
+        .where(Order.id == order_id)
+        .where(Order.production_status != ProductionStatus.CANCELLED)
+        .options(
+            selectinload(Order.client),
+            selectinload(Order.outsourcings),
+            selectinload(Order.production_events),
+            selectinload(Order.items).selectinload(OrderItem.product),
+            selectinload(Order.items).selectinload(OrderItem.size),
+            selectinload(Order.items).selectinload(OrderItem.delivery_history),
+            selectinload(Order.items)
+            .selectinload(OrderItem.services)
+            .selectinload(OrderItemService.service),
+        )
+    )
+    if for_update:
+        query = query.with_for_update()
+    order = db.scalar(query)
+    if order is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="OS de entrega nao encontrada.",
+        )
+    return order
+
+
+def _register_delivery_for_item(
+    *,
+    db: Session,
+    order: Order,
+    item: OrderItem,
+    quantity: int,
+    picked_up_by: str,
+    pickup_document: str | None,
+    delivery_notes: str | None,
+    notes: str | None,
+    user: User,
+    user_name: str,
+) -> None:
+    item.quantity_delivered += quantity
+    item.delivery_history.append(
+        DeliveryHistory(
+            order_id=order.id,
+            quantity=quantity,
+            user_id=user.id,
+            user_name_snapshot=user_name,
+            responsible=user_name,
+            picked_up_by=picked_up_by,
+            pickup_document=pickup_document,
+            delivery_notes=delivery_notes,
+            notes=notes,
+        )
+    )
+    db.add(
+        ProductionEvent(
+            order_id=order.id,
+            order_item_id=item.id,
+            event_type=ProductionEventType.DELIVERY_REGISTERED,
+            stage="delivered",
+            quantity=quantity,
+            notes=delivery_notes or notes,
+            user_id=user.id,
+            user_name_snapshot=user_name,
+        )
+    )
+
+
 def _build_delivery_item(
     order: Order,
     item: OrderItem,
@@ -233,11 +369,7 @@ def _build_delivery_item(
     first_delivery = item.delivery_history[0] if item.delivery_history else None
     now = datetime.now(timezone.utc)
     important_notes = _important_notes(item)
-    has_weak_proof = any(
-        not _clean_required_text(entry.picked_up_by)
-        or not _clean_required_text(entry.pickup_document)
-        for entry in item.delivery_history
-    )
+    has_weak_proof = any(not _clean_required_text(entry.picked_up_by) for entry in item.delivery_history)
     bottleneck_flags = _bottleneck_flags(
         queue_status=queue_status,
         quantity_available=quantity_available,
