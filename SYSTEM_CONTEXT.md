@@ -104,8 +104,8 @@ Regra atual:
 Exemplo válido:
 
 - OS 42
-  - Item 1: Blusa, tamanho 12, Azul Bebê, 120 peças, Corte + Serigrafia + Confecção interna
-  - Item 2: Casaco, tamanho 8, Azul Royal, 120 peças, Corte + Serigrafia + Terceirização
+  - Item 1: Blusa, tamanho 12, Azul Bebê, 120 peças, Corte + DTF + Confecção interna
+  - Item 2: Casaco, tamanho 8, Azul Royal, 120 peças, Corte + DTF + Terceirização
   - Item 3: Calça, tamanho 8, Azul Royal, 150 peças, Corte + Confecção interna
 
 Não voltar a bloquear mistura de produtos/modelos dentro da mesma OS. Essa regra antiga foi removida.
@@ -163,8 +163,8 @@ Seed base:
 - Serviços:
   - Corte: R$ 1,00 por peça
   - Confecção: R$ 5,00 por peça
-  - Serigrafia frente: R$ 1,50 por peça
-  - Serigrafia frente e costas: R$ 3,00 por peça
+  - DTF frente: R$ 1,50 por peça
+  - DTF frente e costas: R$ 3,00 por peça
 
 Serviços têm preço por unidade. O preço usado na OS é congelado no momento da criação/edição do item e salvo em `OrderItemService`/`OrderService`.
 
@@ -302,13 +302,13 @@ Eventos:
 - `cut_pieces_allocated`
 - `cut_pieces_returned`
 
-### Serigrafia
+### DTF
 
 Regras por produto:
 
 - Blusa: frente ou frente e costas.
 - Casaco: frente.
-- Calça, Short e Short saia: exigem exceção (`allow_printing_exception`) para permitir serigrafia.
+- Calça, Short e Short saia: exigem exceção (`allow_printing_exception`) para permitir DTF.
 
 Validações:
 
@@ -324,8 +324,8 @@ Evento:
 
 Regras:
 
-- Se houver serigrafia, costurar somente quantidade já estampada.
-- Se não houver serigrafia, costurar somente quantidade cortada/destinada.
+- Se houver DTF, costurar somente quantidade já estampada.
+- Se não houver DTF, costurar somente quantidade cortada/destinada.
 - Item com `sewing_mode=outsourced` não usa Confecção interna.
 
 Evento:
@@ -369,7 +369,7 @@ Status de entrega:
 Um item fica disponível para entrega conforme sua rota:
 
 - item com confecção interna: quantidade costurada;
-- item com serigrafia e sem confecção: quantidade estampada;
+- item com DTF e sem confecção: quantidade estampada;
 - item só com corte: quantidade cortada;
 - item terceirizado: quantidade retornada da terceirização;
 - item sem serviço produtivo: quantidade solicitada.
@@ -813,7 +813,7 @@ Depois de mudanças relevantes:
 5. Validar criação de OS com múltiplos itens/produtos.
 6. Validar campos obrigatórios de item.
 7. Validar corte, alocação e devolução de peças.
-8. Validar serigrafia com e sem exceção.
+8. Validar DTF com e sem exceção.
 9. Validar confecção interna.
 10. Validar terceirização, retorno e repasse.
 11. Confirmar que terceirização vendida entra no total da OS.

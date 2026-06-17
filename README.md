@@ -2,7 +2,7 @@
 
 ## Sobre
 
-Gratao Flow e um sistema de gestao de producao para malharia, incluindo corte, serigrafia, confeccao, terceirizacao, estoque e financeiro.
+Gratao Flow e um sistema de gestao de producao para malharia, incluindo corte, DTF, confeccao, terceirizacao, estoque e financeiro.
 
 ## Como rodar
 
@@ -82,7 +82,7 @@ Se existir um banco local antigo criado com credenciais de teste, resete o banco
 1. Criar cliente
 2. Criar OS
 3. Registrar corte
-4. Registrar serigrafia
+4. Registrar DTF
 5. Registrar confeccao
 6. Adicionar pagamento
 7. Usar terceirizacao, se necessario

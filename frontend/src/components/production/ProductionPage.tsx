@@ -275,6 +275,7 @@ export function ProductionPage() {
           operational_priority: item.id === row.item.id ? priority : item.operational_priority,
           sewing_mode: item.sewing_mode,
           notes: item.notes,
+          dtf_notes: item.dtf_notes,
           service_ids: item.services.map((service) => service.service_id)
         }))
       });
@@ -912,7 +913,7 @@ function OperationalAuditModal({
                 onChange={(event) => setStage(event.target.value)}
               >
                 <option value="cut">Corte</option>
-                <option value="print">DTF/serigrafia</option>
+                <option value="print">DTF</option>
                 <option value="sew">Confeccao</option>
                 {target.action !== "adjustment" ? <option value="outsourcing">Terceirizacao</option> : null}
                 {target.action !== "adjustment" ? <option value="outsourcing_return">Retorno</option> : null}

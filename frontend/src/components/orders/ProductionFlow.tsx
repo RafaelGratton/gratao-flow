@@ -66,7 +66,7 @@ function Stage({
     stage === "cut"
       ? "Destinacao de corte"
       : stage === "print"
-        ? "Serigrafia"
+        ? "DTF"
         : stage === "sew"
           ? "Confeccao"
           : "Terceirizacao";

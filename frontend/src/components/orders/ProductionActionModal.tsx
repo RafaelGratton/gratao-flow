@@ -19,7 +19,7 @@ type ProductionActionModalProps = {
 
 const labels: Record<ActionType, string> = {
   cut: "Registrar corte para estoque",
-  print: "Registrar serigrafia",
+  print: "Registrar DTF",
   sew: "Registrar confeccao"
 };
 
@@ -115,7 +115,7 @@ export function ProductionActionModal({
           <div className="rounded-md border border-line bg-[#FCFAF6] p-3 text-xs font-semibold leading-5 text-muted">
             {action === "cut"
               ? "O corte entra no estoque e ainda precisa ser destinado para liberar a OS."
-              : "Serigrafia e confeccao registram incrementos sobre o saldo destinado."}
+              : "DTF e confeccao registram incrementos sobre o saldo destinado."}
           </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={onClose}>

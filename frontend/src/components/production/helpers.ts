@@ -167,7 +167,7 @@ export function itemFlowLabel(item: OrderItem) {
   if (itemIsCancelled(item)) return "Item cancelado";
   const stages = flowStageOptions(item).map((stage) => {
     if (stage === "cut") return "Destinacao de corte";
-    if (stage === "print") return "Serigrafia";
+    if (stage === "print") return "DTF";
     if (stage === "sew") return "Confeccao interna";
     return "Terceirizacao";
   });
@@ -187,7 +187,7 @@ export function printingServiceLabel(order: OrderDetails) {
   if (service?.service.name) return service.service.name;
   if (order.print_type === "front_back") return "Frente e costas";
   if (order.print_type === "front") return "Frente";
-  return "Serigrafia";
+  return "DTF";
 }
 
 export function buildOperationalQueueItem(

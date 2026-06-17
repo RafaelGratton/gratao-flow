@@ -62,6 +62,7 @@ class OrderItemCreate(BaseModel):
     operational_priority: OperationalPriority = OperationalPriority.NORMAL
     sewing_mode: SewingMode | None = None
     notes: str | None = None
+    dtf_notes: str | None = None
     service_ids: list[int] = Field(min_length=1)
     service_prices: dict[int, MoneyDecimal] = Field(default_factory=dict)
 
@@ -83,6 +84,7 @@ class OrderItemUpdate(BaseModel):
     operational_priority: OperationalPriority = OperationalPriority.NORMAL
     sewing_mode: SewingMode | None = None
     notes: str | None = None
+    dtf_notes: str | None = None
     service_ids: list[int] = Field(min_length=1)
     service_prices: dict[int, MoneyDecimal] = Field(default_factory=dict)
 
@@ -134,6 +136,7 @@ class OrderCreate(BaseModel):
                 quantity_requested=self.quantity_requested or 0,
                 sewing_mode=None,
                 notes=self.notes,
+                dtf_notes=None,
                 service_ids=self.service_ids or [],
                 service_prices=self.service_prices or {},
             )
@@ -209,6 +212,7 @@ class OrderItemRead(BaseModel):
     delivery_status: DeliveryStatus
     sewing_mode: SewingMode | None
     notes: str | None
+    dtf_notes: str | None
     is_cancelled: bool
     cancelled_at: datetime | None
     cancel_reason: str | None

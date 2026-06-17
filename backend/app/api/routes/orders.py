@@ -142,6 +142,7 @@ def create_order(
             operational_priority=item_payload.operational_priority,
             sewing_mode=_normalized_sewing_mode(item_payload, services),
             notes=item_payload.notes,
+            dtf_notes=item_payload.dtf_notes,
         )
         order.items.append(order_item)
 
@@ -1202,7 +1203,7 @@ def _validate_print_adjustment(order: Order, item: OrderItem, after_quantity: in
     if not _item_has_printing(item):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Este item nao possui etapa de DTF/serigrafia.",
+            detail="Este item nao possui etapa de DTF.",
         )
     if after_quantity > item.quantity_cut:
         raise HTTPException(
@@ -1343,7 +1344,7 @@ def _production_event_label(event: ProductionEvent) -> str:
         ProductionEventType.CUT_PIECES_RETURNED: "Pecas cortadas devolvidas ao estoque",
         ProductionEventType.PRODUCTION_PAUSED: "Producao pausada",
         ProductionEventType.PRODUCTION_RESUMED: "Producao retomada",
-        ProductionEventType.PRINT_REGISTERED: "DTF/serigrafia registrada",
+        ProductionEventType.PRINT_REGISTERED: "DTF registrado",
         ProductionEventType.SEWING_REGISTERED: "Confeccao registrada",
         ProductionEventType.OUTSOURCING_SENT: "Terceirizacao enviada",
         ProductionEventType.OUTSOURCING_RETURNED: "Retorno de terceirizacao registrado",
@@ -1483,6 +1484,7 @@ def _apply_safe_order_update(db: Session, order: Order, payload: OrderUpdate) ->
         item.color = item_payload.color
         item.operational_priority = item_payload.operational_priority
         item.notes = item_payload.notes
+        item.dtf_notes = item_payload.dtf_notes
 
     if not _active_order_items(order):
         raise HTTPException(
@@ -1550,6 +1552,7 @@ def _append_new_order_item(order: Order, item_payload: object, services: list[Se
         operational_priority=item_payload.operational_priority,
         sewing_mode=_normalized_sewing_mode(item_payload, services),
         notes=item_payload.notes,
+        dtf_notes=item_payload.dtf_notes,
         is_cancelled=False,
     )
     order.items.append(order_item)
@@ -1923,12 +1926,12 @@ def _validate_item_print_registration(
     if not _item_has_printing(item):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Serigrafia nao faz parte do fluxo deste item.",
+            detail="DTF nao faz parte do fluxo deste item.",
         )
     if item.quantity_cut == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Nao e possivel registrar serigrafia sem pecas destinadas para este item.",
+            detail="Nao e possivel registrar DTF sem pecas destinadas para este item.",
         )
     if item.quantity_printed + payload.quantity > item.quantity_cut:
         raise HTTPException(
@@ -2019,7 +2022,7 @@ def _validate_outsourcing_item(order: Order, order_item_id: int) -> OrderItem:
     if _item_has_printing(item) and item.quantity_printed < item.quantity_requested:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Nao e possivel terceirizar antes de concluir a serigrafia do item.",
+            detail="Nao e possivel terceirizar antes de concluir o DTF do item.",
         )
     if _available_outsourcing_quantity_for_item(order, item) <= 0:
         raise HTTPException(

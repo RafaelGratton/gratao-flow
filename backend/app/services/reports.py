@@ -87,9 +87,9 @@ PRODUCTION_STATUS_LABELS = {
     ProductionStatus.MIXED: "Fluxo misto",
     ProductionStatus.IN_CUT: "Em corte",
     ProductionStatus.CUT_DONE: "Corte concluido",
-    ProductionStatus.WAITING_PRINT: "Aguardando serigrafia",
-    ProductionStatus.IN_PRINT: "Em serigrafia",
-    ProductionStatus.PRINT_DONE: "Serigrafia concluida",
+    ProductionStatus.WAITING_PRINT: "Aguardando DTF",
+    ProductionStatus.IN_PRINT: "Em DTF",
+    ProductionStatus.PRINT_DONE: "DTF concluido",
     ProductionStatus.WAITING_SEWING: "Aguardando confeccao",
     ProductionStatus.IN_SEWING: "Em confeccao",
     ProductionStatus.SEWING_DONE: "Confeccao concluida",
@@ -356,6 +356,7 @@ def _build_report_item(item: OrderItem, order: Order) -> ReportItem:
         quantity_delivered=item.quantity_delivered,
         delivery_status=item.delivery_status,
         sewing_mode=item.sewing_mode,
+        dtf_notes=item.dtf_notes,
         is_cancelled=item.is_cancelled,
         cancelled_at=item.cancelled_at,
         cancel_reason=item.cancel_reason,
@@ -463,7 +464,7 @@ def generate_internal_order_report_pdf(report: InternalOrderReport) -> bytes:
                 [
                     ("Solicitada", str(report.quantity_requested)),
                     ("Destinada", str(report.quantity_cut)),
-                    ("Serigrafada", str(report.quantity_printed)),
+                    ("DTF aplicado", str(report.quantity_printed)),
                     ("Costurada", str(report.quantity_sewn)),
                     ("Excedente historico", str(report.quantity_extra)),
                 ]
@@ -759,7 +760,7 @@ def _production_event_label(event_type: str) -> str:
         "cut_pieces_returned": "Pecas devolvidas ao estoque",
         "production_paused": "Producao pausada",
         "production_resumed": "Producao retomada",
-        "print_registered": "DTF/serigrafia registrada",
+        "print_registered": "DTF registrado",
         "sewing_registered": "Confeccao registrada",
         "outsourcing_sent": "Terceirizacao enviada",
         "outsourcing_returned": "Retorno da terceirizacao",
@@ -1008,10 +1009,12 @@ def _items_table(items: Sequence[ReportItem], *, include_internal: bool) -> Tabl
         if include_internal:
             production_lines = [
                 f"Dest.: {item.quantity_cut}",
-                f"Serig.: {item.quantity_printed}",
+                f"DTF: {item.quantity_printed}",
                 f"Cost.: {item.quantity_sewn}",
                 f"Entr.: {item.quantity_delivered}",
             ]
+            if item.dtf_notes:
+                production_lines.append(f"Obs. DTF: {item.dtf_notes}")
             if item.is_cancelled and item.cancel_reason:
                 production_lines.append(f"Motivo: {item.cancel_reason}")
             row.append(Paragraph(_text("<br/>".join(production_lines)), styles["small"]))

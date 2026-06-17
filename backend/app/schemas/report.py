@@ -72,6 +72,7 @@ class ReportItem(BaseModel):
     quantity_delivered: int
     delivery_status: DeliveryStatus
     sewing_mode: SewingMode | None
+    dtf_notes: str | None = None
     is_cancelled: bool = False
     cancelled_at: datetime | None = None
     cancel_reason: str | None = None

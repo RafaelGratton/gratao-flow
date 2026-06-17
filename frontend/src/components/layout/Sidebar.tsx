@@ -28,7 +28,7 @@ const items = [
   { label: "Pedidos de Cliente", href: "/order-groups", icon: Layers },
   { label: "Produção", href: "/production", icon: Factory },
   { label: "Corte", href: "/cutting", icon: Scissors },
-  { label: "Serigrafia", href: "/printing", icon: Stamp },
+  { label: "DTF", href: "/printing", icon: Stamp },
   { label: "Confecção", href: "/sewing", icon: Shirt },
   { label: "Terceirização", href: "/outsourcing", icon: Truck },
   { label: "Entregas", href: "/deliveries", icon: PackageCheck },

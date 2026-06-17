@@ -258,6 +258,7 @@ class OrderItem(Base):
         nullable=True,
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dtf_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_cancelled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

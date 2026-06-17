@@ -95,13 +95,19 @@ export function ReportItemsList({ items }: { items: ReportItem[] }) {
           </div>
           <div className="mt-3 grid gap-2 md:grid-cols-4">
             <ReportField label="Pecas destinadas" value={item.quantity_cut} />
-            <ReportField label="Serigrafada" value={item.quantity_printed} />
+            <ReportField label="DTF aplicado" value={item.quantity_printed} />
             <ReportField label="Costurada" value={item.quantity_sewn} />
             <ReportField label="Entregue" value={item.quantity_delivered} />
           </div>
           <div className="mt-3">
             <ServicesList services={[...item.services, ...(item.outsourcing_services ?? [])]} />
           </div>
+          {item.dtf_notes ? (
+            <div className="mt-3 rounded-md border border-accent/25 bg-accent-soft/30 p-3">
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-accent-dark">Observacao DTF</p>
+              <p className="mt-1 text-sm font-semibold text-ink">{item.dtf_notes}</p>
+            </div>
+          ) : null}
         </div>
       ))}
     </div>

@@ -122,7 +122,7 @@ export function OutsourcingAvailableOrders({ items, loading, onSend }: Props) {
           <EmptyState
             icon={<Send size={20} />}
             title="Nenhum item disponivel"
-            description="Itens terceirizados com pecas cortadas destinadas e serigrafia concluida, quando houver, aparecem aqui para envio."
+            description="Itens terceirizados com pecas cortadas destinadas e DTF concluido, quando houver, aparecem aqui para envio."
           />
         ) : (
           <div className="grid gap-3">

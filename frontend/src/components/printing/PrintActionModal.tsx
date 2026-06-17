@@ -158,7 +158,13 @@ export function PrintActionModal({ order, item, open, onClose, onUpdated }: Prin
             </select>
           </label>
           {onlyFront ? (
-            <p className="text-sm font-semibold text-muted">Casaco permite apenas serigrafia frente.</p>
+            <p className="text-sm font-semibold text-muted">Casaco permite apenas DTF frente.</p>
+          ) : null}
+          {item?.dtf_notes ? (
+            <div className="rounded-md border border-accent/25 bg-accent-soft/30 p-3">
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-accent-dark">Observacao DTF</p>
+              <p className="mt-1 text-sm font-semibold text-ink">{item.dtf_notes}</p>
+            </div>
           ) : null}
           <label className="block space-y-2">
             <span className="text-sm font-semibold text-ink">Observacao operacional</span>

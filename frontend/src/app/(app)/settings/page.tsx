@@ -32,6 +32,13 @@ type Size = {
 };
 
 const serviceTypes = ["corte", "serigrafia", "confeccao", "terceirizacao", "extra"] as const;
+const serviceTypeLabels: Record<(typeof serviceTypes)[number], string> = {
+  corte: "Corte",
+  serigrafia: "DTF",
+  confeccao: "Confeccao",
+  terceirizacao: "Terceirizacao",
+  extra: "Extra"
+};
 
 type SystemSettings = {
   id: number;
@@ -718,7 +725,7 @@ function ServiceEditModal({
             >
               {serviceTypes.map((type) => (
                 <option key={type} value={type}>
-                  {type}
+                  {serviceTypeLabels[type]}
                 </option>
               ))}
             </select>

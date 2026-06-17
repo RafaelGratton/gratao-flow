@@ -15,8 +15,8 @@ SIZES = ["4", "6", "8", "10", "12", "14", "16", "PP", "P", "M", "G", "GG"]
 SERVICES = [
     {"name": "Corte", "type": "corte", "price_per_unit": Decimal("1.00")},
     {"name": "Confecção", "type": "confeccao", "price_per_unit": Decimal("5.00")},
-    {"name": "Serigrafia frente", "type": "serigrafia", "price_per_unit": Decimal("1.50")},
-    {"name": "Serigrafia frente e costas", "type": "serigrafia", "price_per_unit": Decimal("3.00")},
+    {"name": "DTF frente", "type": "serigrafia", "price_per_unit": Decimal("1.50")},
+    {"name": "DTF frente e costas", "type": "serigrafia", "price_per_unit": Decimal("3.00")},
 ]
 
 PRODUCT_TEXT_FIXES = {
@@ -27,6 +27,8 @@ PRODUCT_TEXT_FIXES = {
 SERVICE_TEXT_FIXES = {
     "Confec\u00c3\u00a7\u00c3\u00a3o": "Confecção",
     "Confec\u00c3\u0083\u00c2\u00a7\u00c3\u0083\u00c2\u00a3o": "Confecção",
+    "Serigrafia frente": "DTF frente",
+    "Serigrafia frente e costas": "DTF frente e costas",
 }
 
 

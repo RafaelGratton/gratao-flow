@@ -97,7 +97,7 @@ function LoginContent() {
         </div>
 
         <div className="relative grid grid-cols-3 gap-3">
-          {["Corte", "Serigrafia", "Confecção"].map((item) => (
+          {["Corte", "DTF", "Confecção"].map((item) => (
             <div key={item} className="rounded-md border border-white/10 bg-white/[0.045] p-4">
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/42">
                 Etapa

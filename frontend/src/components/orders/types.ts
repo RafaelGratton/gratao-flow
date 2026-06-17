@@ -85,6 +85,7 @@ export type OrderItem = {
   delivery_status: DeliveryStatus;
   sewing_mode: SewingMode | null;
   notes: string | null;
+  dtf_notes: string | null;
   is_cancelled: boolean;
   cancelled_at: string | null;
   cancel_reason: string | null;

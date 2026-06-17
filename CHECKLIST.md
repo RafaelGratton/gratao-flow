@@ -3,7 +3,7 @@
 * [ ] Criar cliente
 * [ ] Criar pedido
 * [ ] Registrar corte
-* [ ] Registrar serigrafia
+* [ ] Registrar DTF
 * [ ] Registrar confecção
 * [ ] Registrar pagamento
 * [ ] Conferir estoque

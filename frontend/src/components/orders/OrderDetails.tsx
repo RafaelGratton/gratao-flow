@@ -369,6 +369,12 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
                   {item.notes ? (
                     <p className="mt-3 text-sm font-semibold text-muted">{item.notes}</p>
                   ) : null}
+                  {item.dtf_notes ? (
+                    <div className="mt-3 rounded-md border border-accent/25 bg-accent-soft/30 p-3">
+                      <p className="text-xs font-bold uppercase tracking-[0.12em] text-accent-dark">Observacao DTF</p>
+                      <p className="mt-1 text-sm font-semibold text-ink">{item.dtf_notes}</p>
+                    </div>
+                  ) : null}
                   {item.is_cancelled && item.cancel_reason ? (
                     <p className="mt-3 rounded-md border border-danger/20 bg-danger/10 p-3 text-sm font-semibold text-danger">
                       Motivo do cancelamento: {item.cancel_reason}
@@ -428,7 +434,7 @@ export function OrderDetails({ orderId }: OrderDetailsProps) {
       <Card>
         <CardHeader>
           <h2 className="text-lg font-black text-ink">Produção</h2>
-          <p className="mt-1 text-sm text-muted">Destinacao de corte, serigrafia e confeccao com progresso por quantidade.</p>
+          <p className="mt-1 text-sm text-muted">Destinacao de corte, DTF e confeccao com progresso por quantidade.</p>
         </CardHeader>
         <CardContent>
           <ProductionFlow order={order} />
@@ -578,7 +584,7 @@ function eventLabel(eventType: string) {
   if (eventType === "cut_pieces_returned") return "Pecas cortadas devolvidas ao estoque";
   if (eventType === "production_paused") return "Producao pausada";
   if (eventType === "production_resumed") return "Producao retomada";
-  if (eventType === "print_registered") return "DTF/serigrafia registrada";
+  if (eventType === "print_registered") return "DTF registrado";
   if (eventType === "sewing_registered") return "Confeccao registrada";
   if (eventType === "outsourcing_sent") return "Terceirizacao enviada";
   if (eventType === "outsourcing_returned") return "Retorno de terceirizacao";

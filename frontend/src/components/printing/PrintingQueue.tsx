@@ -53,7 +53,7 @@ function availableForPrint(item: OrderItem) {
 
 function printServiceLabel(item: OrderItem) {
   const service = getItemPrintingService(item);
-  return service?.service.name ?? "Serigrafia";
+  return service?.service.name ?? "DTF";
 }
 
 function priorityLabel(priority: OrderItem["operational_priority"]) {
@@ -83,7 +83,7 @@ export function PrintingQueue() {
       );
       setOrders(details);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Nao foi possivel carregar a fila de serigrafia.");
+      setError(requestError instanceof Error ? requestError.message : "Nao foi possivel carregar a fila de DTF.");
     } finally {
       setLoading(false);
     }
@@ -198,7 +198,7 @@ export function PrintingQueue() {
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent-dark">
             Painel operacional de aplicacao DTF por item
           </p>
-          <h1 className="mt-1 text-3xl font-black text-ink">Serigrafia</h1>
+          <h1 className="mt-1 text-3xl font-black text-ink">DTF</h1>
         </div>
         <Button type="button" variant="secondary" onClick={() => void loadOrders()} disabled={loading}>
           Atualizar fila
@@ -253,7 +253,7 @@ export function PrintingQueue() {
           <EmptyState
             icon={<Layers3 size={20} />}
             title="Nenhuma OS aguardando DTF"
-            description="OS com itens de serigrafia pendentes aparecem nesta fila."
+            description="OS com itens de DTF pendentes aparecem nesta fila."
           />
         ) : (
           <div className="space-y-3">
@@ -361,6 +361,12 @@ function PrintItemRow({ row, onRegister }: { row: PrintRow; onRegister: () => vo
         <p className="mt-2 text-sm text-muted">
           <span className="font-bold text-ink">{row.item.product.name}</span> / {row.item.size.label} / {row.item.color || "sem cor"}
         </p>
+        {row.item.dtf_notes ? (
+          <div className="mt-3 rounded-md border border-accent/25 bg-accent-soft/30 p-3">
+            <p className="text-xs font-bold uppercase tracking-[0.12em] text-accent-dark">Observacao DTF</p>
+            <p className="mt-1 text-sm font-semibold text-ink">{row.item.dtf_notes}</p>
+          </div>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-3 gap-3 rounded-md border border-line bg-[#FCFAF6] p-3">

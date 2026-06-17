@@ -45,7 +45,8 @@ const itemSchema = z.object({
     .array(z.coerce.number().int().positive())
     .min(1, "Selecione pelo menos um servico."),
   service_prices: z.record(z.string(), z.string()).default({}),
-  notes: z.string().optional()
+  notes: z.string().optional(),
+  dtf_notes: z.string().optional()
 });
 
 const schema = z.object({
@@ -67,6 +68,7 @@ type FormInput = {
     service_ids: number[];
     service_prices: Record<string, string>;
     notes: string;
+    dtf_notes: string;
   }>;
   allow_printing_exception: boolean;
   notes: string;
@@ -95,7 +97,8 @@ const emptyItem = () => ({
   sewing_mode: "internal" as SewingMode,
   service_ids: [],
   service_prices: {},
-  notes: ""
+  notes: "",
+  dtf_notes: ""
 });
 
 export function OrderForm() {
@@ -221,6 +224,7 @@ export function OrderForm() {
                   ? "internal"
                   : null,
             notes: item.notes?.trim() ? item.notes : null,
+            dtf_notes: item.dtf_notes?.trim() ? item.dtf_notes : null,
             service_ids: serviceIds,
             service_prices: servicePrices
           };
@@ -486,6 +490,13 @@ export function OrderForm() {
                   {...register(`items.${index}.notes`)}
                 />
 
+                <Input
+                  label="Observacao DTF"
+                  error={itemErrors?.dtf_notes?.message}
+                  placeholder="Ex: 40 Planaltina, 40 Sobradinho, 40 Plano Piloto"
+                  {...register(`items.${index}.dtf_notes`)}
+                />
+
                 <div className="space-y-3">
                   <p className="text-sm font-semibold text-ink">Producao final</p>
                   <div className="grid gap-3 md:grid-cols-2">
@@ -628,7 +639,7 @@ export function OrderForm() {
                 className="h-4 w-4 rounded border-line text-accent focus:focus-ring"
                 {...register("allow_printing_exception")}
               />
-              Permitir excecao de serigrafia
+              Permitir excecao de DTF
             </label>
             <p className="text-sm font-black text-ink">
               Total estimado: {formatCurrency(estimatedTotal)}

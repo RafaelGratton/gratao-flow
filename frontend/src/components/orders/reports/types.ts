@@ -36,6 +36,7 @@ export type ReportItem = {
   quantity_delivered: number;
   delivery_status: string;
   sewing_mode: string | null;
+  dtf_notes: string | null;
   services: ReportService[];
   outsourcing_services?: ReportService[];
 };

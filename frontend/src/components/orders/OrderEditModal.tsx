@@ -29,6 +29,7 @@ type EditItem = {
   service_ids: number[];
   service_prices: Record<string, string>;
   notes: string;
+  dtf_notes: string;
 };
 
 type CatalogData = {
@@ -56,7 +57,8 @@ function emptyItem(): EditItem {
     sewing_mode: "internal",
     service_ids: [],
     service_prices: {},
-    notes: ""
+    notes: "",
+    dtf_notes: ""
   };
 }
 
@@ -260,6 +262,7 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
                 ? "internal"
                 : null,
           notes: item.notes.trim() ? item.notes.trim() : null,
+          dtf_notes: item.dtf_notes.trim() ? item.dtf_notes.trim() : null,
           service_ids: serviceIds,
           service_prices: servicePrices
         };
@@ -488,6 +491,16 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
                       />
                     </div>
 
+                    <div className="mt-4">
+                      <Input
+                        label="Observacao DTF"
+                        value={item.dtf_notes}
+                        onChange={(event) => updateItem(index, { dtf_notes: event.target.value })}
+                        placeholder="Ex: 40 Planaltina, 40 Sobradinho, 40 Plano Piloto"
+                        disabled={loading || saving}
+                      />
+                    </div>
+
                     <div className="mt-5 space-y-3">
                       <p className="text-sm font-semibold text-ink">Producao final</p>
                       <div className="grid gap-3 md:grid-cols-2">
@@ -616,7 +629,7 @@ export function OrderEditModal({ order, open, onClose, onUpdated }: OrderEditMod
                 onChange={(event) => setAllowPrintingException(event.target.checked)}
                 disabled={loading || saving || locked}
               />
-              Permitir excecao de serigrafia
+              Permitir excecao de DTF
             </label>
 
             <div className="rounded-md border border-line bg-white p-4">
@@ -705,7 +718,8 @@ function orderToItems(order: OrderDetails): EditItem[] {
         defaultMoneyInput(service.unit_price)
       ])
     ),
-    notes: item.notes ?? ""
+    notes: item.notes ?? "",
+    dtf_notes: item.dtf_notes ?? ""
   }));
 }
 

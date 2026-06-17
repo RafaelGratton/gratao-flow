@@ -66,7 +66,7 @@ export function ProductionOrderCard({
         {stage === "printing" ? (
           <>
             <Detail label="Quantidade" value={order.quantity_requested} />
-            <Detail label="Tipo de serigrafia" value={printingServiceLabel(order)} />
+            <Detail label="Tipo de DTF" value={printingServiceLabel(order)} />
           </>
         ) : null}
         {stage === "sewing" ? (
@@ -99,7 +99,7 @@ export function ProductionOrderCard({
         {stage === "printing" ? (
           <Button type="button" onClick={onGoPrinting} disabled={order.production_paused}>
             <ExternalLink size={16} />
-            Ir para serigrafia
+            Ir para DTF
           </Button>
         ) : null}
         {stage === "sewing" ? (

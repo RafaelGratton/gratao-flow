@@ -201,7 +201,7 @@ function buildStages(
 
   return [
     rowStage("cut", "Aguardando destinação", "/cutting", cutRows, "peças a destinar", (row) => row.balances.missingCut),
-    rowStage("print", "DTF / Serigrafia", "/printing", printRows, "peças pendentes", (row) => row.balances.missingPrint),
+    rowStage("print", "DTF", "/printing", printRows, "peças pendentes", (row) => row.balances.missingPrint),
     rowStage("sew", "Confecção", "/sewing", sewingRows, "peças pendentes", (row) => row.balances.missingSewing),
     rowStage("outsourcing", "Terceirização", "/outsourcing", outsourcingRows, "peças p/ envio", (row) => row.balances.readyForOutsourcing),
     rowStage("return", "Aguardando retorno", "/outsourcing", returnRows, "peças aguardando", (row) => row.balances.awaitingReturn),

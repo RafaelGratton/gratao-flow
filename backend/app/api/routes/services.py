@@ -15,8 +15,8 @@ router = APIRouter(dependencies=[Depends(get_current_user)])
 SERVICE_ORDER = [
     "Corte",
     "Confecção",
-    "Serigrafia frente",
-    "Serigrafia frente e costas",
+    "DTF frente",
+    "DTF frente e costas",
 ]
 
 

@@ -42,7 +42,7 @@ export function InternalReportModal({ open, report, loading, error, onClose }: I
             <ReportGrid>
               <ReportField label="Solicitada" value={report.quantity_requested} />
               <ReportField label="Pecas destinadas" value={report.quantity_cut} />
-              <ReportField label="Serigrafada" value={report.quantity_printed} />
+              <ReportField label="DTF aplicado" value={report.quantity_printed} />
               <ReportField label="Costurada" value={report.quantity_sewn} />
               <ReportField label="Excedente historico" value={report.quantity_extra} />
             </ReportGrid>
@@ -137,7 +137,7 @@ function eventLabel(eventType: string) {
   if (eventType === "cut_pieces_returned") return "Pecas devolvidas ao estoque";
   if (eventType === "production_paused") return "Producao pausada";
   if (eventType === "production_resumed") return "Producao retomada";
-  if (eventType === "print_registered") return "DTF/serigrafia registrada";
+  if (eventType === "print_registered") return "DTF registrado";
   if (eventType === "sewing_registered") return "Confeccao registrada";
   if (eventType === "outsourcing_sent") return "Terceirizacao enviada";
   if (eventType === "outsourcing_returned") return "Retorno da terceirizacao";
