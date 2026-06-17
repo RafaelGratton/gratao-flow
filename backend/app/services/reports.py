@@ -1,6 +1,7 @@
 from io import BytesIO
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from pathlib import Path
 from typing import Any, Iterable, Sequence
 from xml.sax.saxutils import escape
 
@@ -10,6 +11,7 @@ from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.platypus import Image as ReportImage
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from app.models.enums import FinancialStatus, ProductionStatus
@@ -41,6 +43,7 @@ from app.schemas.report import (
 PAGE_MARGIN = 14 * mm
 SECTION_SPACING = 8
 MONEY_QUANTIZER = Decimal("0.01")
+LOGO_PATH = Path(__file__).resolve().parents[1] / "assets" / "logo.png"
 
 PDF_COLORS = {
     "ink": colors.HexColor("#1F2933"),
@@ -890,7 +893,7 @@ def _document_header(
     table = Table(
         [
             [
-                [Paragraph(_text(title), styles["title"]), Paragraph(_text(subtitle), styles["subtitle"])],
+                _brand_header_content(title, subtitle),
                 badge_table,
             ]
         ],
@@ -911,6 +914,37 @@ def _document_header(
         )
     )
     return [table, Spacer(1, SECTION_SPACING)]
+
+
+def _brand_header_content(title: str, subtitle: str) -> Table:
+    styles = _styles()
+    logo = _logo_image()
+    text_content = [
+        Paragraph(_text(title), styles["title"]),
+        Paragraph(_text(subtitle), styles["subtitle"]),
+    ]
+    if logo is None:
+        return Table([[text_content]], colWidths=[112 * mm], hAlign="LEFT")
+
+    table = Table([[logo, text_content]], colWidths=[34 * mm, 78 * mm], hAlign="LEFT")
+    table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
+    return table
+
+
+def _logo_image() -> ReportImage | None:
+    if not LOGO_PATH.exists():
+        return None
+    return ReportImage(str(LOGO_PATH), width=32 * mm, height=20 * mm)
 
 
 def _section(title: str, content: Any) -> list[Any]:
