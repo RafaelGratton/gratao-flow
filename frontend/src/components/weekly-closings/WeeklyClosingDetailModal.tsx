@@ -6,7 +6,7 @@ import type { Employee } from "@/components/employees/types";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import type { PixKeyType, WeeklyClosing, WeeklyClosingStatus } from "@/components/weekly-closings/types";
-import { formatCurrency, formatDateTime } from "@/lib/format";
+import { formatCurrency, formatDateTime, formatHoursDuration } from "@/lib/format";
 
 type Props = {
   closing: WeeklyClosing | null;
@@ -93,7 +93,7 @@ export function WeeklyClosingDetailModal({ closing, employees, onClose }: Props)
             {hourFields.map(([field, label]) => (
               <div key={field} className="rounded-md border border-line bg-[#FCFAF6] p-4">
                 <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">{label}</p>
-                <p className="mt-2 text-2xl font-black text-ink">{String(closing[field])}h</p>
+                <p className="mt-2 text-2xl font-black text-ink">{formatHoursDuration(String(closing[field]))}</p>
               </div>
             ))}
           </div>
@@ -135,8 +135,10 @@ export function WeeklyClosingDetailModal({ closing, employees, onClose }: Props)
                         <td className="border-b border-line/70 px-3 py-3 font-bold text-ink">{formatDate(log.work_date)}</td>
                         <td className="border-b border-line/70 px-3 py-3 text-muted">{formatTime24(log.clock_in)}</td>
                         <td className="border-b border-line/70 px-3 py-3 text-muted">{formatTime24(log.clock_out)}</td>
-                        <td className="border-b border-line/70 px-3 py-3 text-muted">{log.net_hours}h</td>
-                        <td className="border-b border-line/70 px-3 py-3 text-muted">{log.overtime_hours}h</td>
+                        <td className="border-b border-line/70 px-3 py-3 text-muted">{formatHoursDuration(log.net_hours)}</td>
+                        <td className="border-b border-line/70 px-3 py-3 text-muted">
+                          {formatHoursDuration(log.overtime_hours)}
+                        </td>
                         <td className="border-b border-line/70 px-3 py-3 font-black text-ink">
                           {formatCurrency(log.total_amount)}
                         </td>

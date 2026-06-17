@@ -1,6 +1,6 @@
 import { Banknote, CalendarClock, CheckCircle2, Users } from "lucide-react";
 import { StatCard } from "@/components/dashboard/StatCard";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatHoursDuration } from "@/lib/format";
 import type { Employee, WorkLog } from "./types";
 
 type Props = {
@@ -39,7 +39,7 @@ export function EmployeeSummaryCards({ employees, workLogs }: Props) {
       />
       <StatCard
         label="Horas extras"
-        value={`${overtimeHours.toFixed(2)}h`}
+        value={formatHoursDuration(overtimeHours)}
         detail="Horas extras nos registros carregados."
         icon={<CheckCircle2 size={20} />}
       />

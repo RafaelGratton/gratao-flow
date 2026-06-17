@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/Input";
 import type { Employee, WorkLog } from "@/components/employees/types";
 import type { WeeklyClosing, WeeklyClosingCreate } from "@/components/weekly-closings/types";
 import { api } from "@/lib/api";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatHoursDuration } from "@/lib/format";
 import type { PixKeyType } from "./types";
 
 type Props = {
@@ -189,8 +189,8 @@ export function WeeklyClosingCreateModal({ open, employees, workLogs, initialEmp
           </div>
           <div className="grid gap-3 md:grid-cols-4">
             <PreviewTile label="Dias" value={String(selectedLogs.filter((log) => Number(log.net_hours) > 0).length)} />
-            <PreviewTile label="Liquidas" value={`${preview.net.toFixed(2)}h`} />
-            <PreviewTile label="Extras" value={`${preview.extra.toFixed(2)}h`} />
+            <PreviewTile label="Liquidas" value={formatHoursDuration(preview.net)} />
+            <PreviewTile label="Extras" value={formatHoursDuration(preview.extra)} />
             <PreviewTile label="Total" value={formatCurrency(preview.total)} strong />
           </div>
           <div className="rounded-md border border-line bg-[#FCFAF6] p-4">

@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { api } from "@/lib/api";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatHoursDuration } from "@/lib/format";
 import { formatTime24, isValidTime24, Time24Input } from "./Time24Input";
 import type { Employee, WorkLog, WorkPaymentMode } from "./types";
 
@@ -184,8 +184,8 @@ export function WorkLogExitModal({ workLog, employee, onClose, onSaved }: Props)
             </label>
           </div>
           <div className="grid gap-3 md:grid-cols-4">
-            <PreviewTile label="Liquidas" value={`${preview.netHours}h`} />
-            <PreviewTile label="Extras" value={`${preview.overtimeHours}h`} />
+            <PreviewTile label="Liquidas" value={formatHoursDuration(preview.netHours)} />
+            <PreviewTile label="Extras" value={formatHoursDuration(preview.overtimeHours)} />
             <PreviewTile label="Base" value={formatCurrency(preview.baseAmount)} />
             <PreviewTile label="Total" value={formatCurrency(preview.totalAmount)} strong />
           </div>

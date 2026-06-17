@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { formatCurrency, formatDateTime } from "@/lib/format";
+import { formatCurrency, formatDateTime, formatHoursDuration } from "@/lib/format";
 import { formatTime24 } from "./Time24Input";
 import type { Employee, WorkLog, WorkPaymentMode } from "./types";
 
@@ -101,9 +101,15 @@ export function WorkLogsTable({ employees, workLogs, loading, selectedEmployee, 
                     <td className="border-b border-line/70 px-4 py-4 text-muted">
                       {paymentModeLabels[workLog.payment_mode]}
                     </td>
-                    <td className="border-b border-line/70 px-4 py-4 font-bold text-ink">{workLog.net_hours}h</td>
-                    <td className="border-b border-line/70 px-4 py-4 text-muted">{workLog.regular_hours}h</td>
-                    <td className="border-b border-line/70 px-4 py-4 text-muted">{workLog.overtime_hours}h</td>
+                    <td className="border-b border-line/70 px-4 py-4 font-bold text-ink">
+                      {formatHoursDuration(workLog.net_hours)}
+                    </td>
+                    <td className="border-b border-line/70 px-4 py-4 text-muted">
+                      {formatHoursDuration(workLog.regular_hours)}
+                    </td>
+                    <td className="border-b border-line/70 px-4 py-4 text-muted">
+                      {formatHoursDuration(workLog.overtime_hours)}
+                    </td>
                     <td className="border-b border-line/70 px-4 py-4 text-muted">
                       {formatCurrency(workLog.base_amount)}
                     </td>

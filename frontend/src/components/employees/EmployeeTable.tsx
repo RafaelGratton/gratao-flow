@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatHoursDuration } from "@/lib/format";
 import type { Employee } from "./types";
 
 type Props = {
@@ -73,8 +73,12 @@ export function EmployeeTable({ employees, loading, onCreate, onEdit, onRegister
                     <td className="border-b border-line/70 px-4 py-4 font-bold text-ink">
                       {formatCurrency(employee.daily_rate)}
                     </td>
-                    <td className="border-b border-line/70 px-4 py-4 text-muted">{employee.standard_daily_hours}h</td>
-                    <td className="border-b border-line/70 px-4 py-4 text-muted">{employee.standard_lunch_hours}h</td>
+                    <td className="border-b border-line/70 px-4 py-4 text-muted">
+                      {formatHoursDuration(employee.standard_daily_hours)}
+                    </td>
+                    <td className="border-b border-line/70 px-4 py-4 text-muted">
+                      {formatHoursDuration(employee.standard_lunch_hours)}
+                    </td>
                     <td className="border-b border-line/70 px-4 py-4 font-bold text-ink">
                       {formatCurrency(employee.hourly_rate)}
                     </td>

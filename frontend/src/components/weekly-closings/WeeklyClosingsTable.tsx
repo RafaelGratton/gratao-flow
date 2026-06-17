@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import type { WeeklyClosing, WeeklyClosingStatus } from "@/components/weekly-closings/types";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatHoursDuration } from "@/lib/format";
 
 type Props = {
   closings: WeeklyClosing[];
@@ -101,8 +101,12 @@ export function WeeklyClosingsTable({
                       {closing.employee_id ? employeeById.get(closing.employee_id) ?? `#${closing.employee_id}` : "Geral"}
                     </td>
                     <td className="border-b border-line/70 px-4 py-4 text-muted">{closing.days_worked}</td>
-                    <td className="border-b border-line/70 px-4 py-4 text-muted">{closing.total_net_hours}h</td>
-                    <td className="border-b border-line/70 px-4 py-4 text-muted">{closing.total_overtime_hours}h</td>
+                    <td className="border-b border-line/70 px-4 py-4 text-muted">
+                      {formatHoursDuration(closing.total_net_hours)}
+                    </td>
+                    <td className="border-b border-line/70 px-4 py-4 text-muted">
+                      {formatHoursDuration(closing.total_overtime_hours)}
+                    </td>
                     <td className="border-b border-line/70 px-4 py-4 text-muted">
                       {formatCurrency(closing.total_base_amount)}
                     </td>
