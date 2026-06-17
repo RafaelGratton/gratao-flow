@@ -48,6 +48,16 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
 }
 
+function pdfFileName(employeeName: string, closing: WeeklyClosing) {
+  const safeEmployee = employeeName
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+  return `fechamento-${safeEmployee || "funcionario"}-${closing.start_date}-a-${closing.end_date}.pdf`;
+}
+
 export function WeeklyClosingDetailModal({ closing, employees, onClose }: Props) {
   if (!closing) return null;
 
@@ -157,7 +167,7 @@ export function WeeklyClosingDetailModal({ closing, employees, onClose }: Props)
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <ReportDownloadButton
               endpoint={`/weekly-closings/${closing.id}/report/pdf`}
-              fileName={`fechamento-${closing.id}-assinatura.pdf`}
+              fileName={pdfFileName(employeeName, closing)}
             >
               Baixar PDF assinatura
             </ReportDownloadButton>

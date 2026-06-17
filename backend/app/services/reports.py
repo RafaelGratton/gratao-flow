@@ -641,12 +641,13 @@ def generate_client_order_group_report_pdf(report: ClientOrderGroupReport) -> by
 def generate_weekly_closing_report_pdf(closing: WeeklyClosing) -> bytes:
     employee = closing.employee
     employee_name = employee.name if employee else f"Funcionario #{closing.employee_id or '-'}"
+    period_text = f"{date_text(closing.start_date)} a {date_text(closing.end_date)}"
     status_label = _enum_label(closing.status, WEEKLY_CLOSING_STATUS_LABELS)
 
     story = [
         *_document_header(
             title="Gratao Flow",
-            subtitle=f"Fechamento para assinatura #{closing.id}",
+            subtitle=f"Fechamento {employee_name} - {period_text}",
             badges=[(f"Status: {status_label}", _status_tone(closing.status.value))],
         ),
         *_section(
@@ -654,7 +655,7 @@ def generate_weekly_closing_report_pdf(closing: WeeklyClosing) -> bytes:
             _info_grid(
                 [
                     ("Funcionario", employee_name),
-                    ("Periodo", f"{date_text(closing.start_date)} a {date_text(closing.end_date)}"),
+                    ("Periodo", period_text),
                     ("Dias trabalhados", str(closing.days_worked)),
                     ("Data de emissao", date_text(datetime.now())),
                     ("Fechado em", date_text(closing.closed_at)),

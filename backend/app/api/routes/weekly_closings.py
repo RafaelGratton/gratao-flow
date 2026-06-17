@@ -94,10 +94,12 @@ def get_weekly_closing_report_pdf(
 ) -> Response:
     closing = _get_weekly_closing_or_404(db, closing_id)
     pdf = generate_weekly_closing_report_pdf(closing)
+    employee_name = closing.employee.name if closing.employee else f"funcionario-{closing.employee_id or closing.id}"
+    filename = _safe_pdf_filename(f"fechamento-{employee_name}-{closing.start_date}-a-{closing.end_date}")
     return Response(
         content=pdf,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="weekly-closing-{closing_id}-signature.pdf"'},
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
 
 
@@ -251,6 +253,12 @@ def _get_weekly_closing_or_404(db: Session, closing_id: int) -> WeeklyClosing:
             detail="Weekly closing not found",
         )
     return closing
+
+
+def _safe_pdf_filename(value: str) -> str:
+    safe = "".join(character.lower() if character.isalnum() else "-" for character in value)
+    safe = "-".join(part for part in safe.split("-") if part)
+    return f"{safe}.pdf"
 
 
 def _sum_money(values) -> Decimal:
