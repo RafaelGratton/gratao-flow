@@ -1,6 +1,6 @@
 from io import BytesIO
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Iterable, Sequence
 from xml.sax.saxutils import escape
 
@@ -14,6 +14,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 from app.models.enums import FinancialStatus, ProductionStatus
 from app.models.order import ClientOrderGroup, Order, OrderItem
+from app.models.weekly_closing import WeeklyClosing
 from app.schemas.report import (
     ClientOrderReport,
     ClientOrderGroupReport,
@@ -120,6 +121,19 @@ OUTSOURCING_STATUS_LABELS = {
 PAYOUT_STATUS_LABELS = {
     "pending": "Pendente",
     "paid": "Pago",
+}
+
+WEEKLY_CLOSING_STATUS_LABELS = {
+    "open": "Aberto",
+    "closed": "Fechado",
+    "paid": "Pago",
+}
+
+PIX_KEY_TYPE_LABELS = {
+    "cpf": "CPF",
+    "email": "E-mail",
+    "phone": "Telefone",
+    "random": "Chave aleatoria",
 }
 
 
@@ -624,6 +638,72 @@ def generate_client_order_group_report_pdf(report: ClientOrderGroupReport) -> by
     return _build_pdf(story)
 
 
+def generate_weekly_closing_report_pdf(closing: WeeklyClosing) -> bytes:
+    employee = closing.employee
+    employee_name = employee.name if employee else f"Funcionario #{closing.employee_id or '-'}"
+    status_label = _enum_label(closing.status, WEEKLY_CLOSING_STATUS_LABELS)
+
+    story = [
+        *_document_header(
+            title="Gratao Flow",
+            subtitle=f"Fechamento para assinatura #{closing.id}",
+            badges=[(f"Status: {status_label}", _status_tone(closing.status.value))],
+        ),
+        *_section(
+            "Dados do fechamento",
+            _info_grid(
+                [
+                    ("Funcionario", employee_name),
+                    ("Periodo", f"{date_text(closing.start_date)} a {date_text(closing.end_date)}"),
+                    ("Dias trabalhados", str(closing.days_worked)),
+                    ("Data de emissao", date_text(datetime.now())),
+                    ("Fechado em", date_text(closing.closed_at)),
+                    ("Pago em", date_text(closing.paid_at)),
+                ]
+            ),
+        ),
+        *_section(
+            "Resumo de horas",
+            _info_grid(
+                [
+                    ("Horas brutas", duration(closing.total_gross_hours)),
+                    ("Intervalos", duration(closing.total_break_hours)),
+                    ("Horas liquidas", duration(closing.total_net_hours)),
+                    ("Horas normais", duration(closing.total_regular_hours)),
+                    ("Horas extras", duration(closing.total_overtime_hours)),
+                    ("Status", status_label),
+                ]
+            ),
+        ),
+        *_section(
+            "Resumo financeiro",
+            _financial_summary(
+                [
+                    ("Base", closing.total_base_amount, "neutral"),
+                    ("Horas extras", closing.total_overtime_amount, "positive"),
+                    ("Descontos", closing.discounts, "warning"),
+                    ("Adiantamentos", closing.advances, "warning"),
+                    (
+                        "Total a pagar",
+                        closing.total_payable,
+                        "negative" if _as_decimal(closing.total_payable) < 0 else "positive",
+                    ),
+                ]
+            ),
+        ),
+        *_section("Dias incluidos", _weekly_closing_work_logs_table(closing.work_logs)),
+        *_section(
+            "Assinatura",
+            _signature_table(
+                employee_name=employee_name,
+                pix_text=_weekly_closing_pix_text(closing),
+                notes=closing.notes,
+            ),
+        ),
+    ]
+    return _build_pdf(story)
+
+
 def money(value: object) -> str:
     amount = _as_decimal(value)
     sign = "-" if amount < 0 else ""
@@ -631,6 +711,22 @@ def money(value: object) -> str:
     raw = f"{amount:,.2f}"
     formatted = raw.replace(",", "_").replace(".", ",").replace("_", ".")
     return f"{sign}R$ {formatted}"
+
+
+def duration(value: object) -> str:
+    amount = _as_decimal(value)
+    if amount <= 0:
+        return "0min"
+
+    total_minutes = int((amount * Decimal("60")).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    hours = total_minutes // 60
+    minutes = total_minutes % 60
+
+    if hours == 0:
+        return f"{minutes}min"
+    if minutes == 0:
+        return f"{hours}h"
+    return f"{hours}h{minutes:02d}min"
 
 
 def date_text(value: object) -> str:
@@ -641,6 +737,15 @@ def date_text(value: object) -> str:
     if hasattr(value, "strftime"):
         return value.strftime("%d/%m/%Y")
     return str(value)
+
+
+def time_text(value: object) -> str:
+    if value is None:
+        return "-"
+    if hasattr(value, "strftime"):
+        return value.strftime("%H:%M")
+    text = str(value)
+    return text[:5] if len(text) >= 5 else text
 
 
 def _production_event_label(event_type: str) -> str:
@@ -1245,6 +1350,85 @@ def _group_production_events_table(events: Sequence[GroupInternalReportProductio
     if len(rows) == 1:
         rows.append([Paragraph("Nenhum evento produtivo registrado.", styles["body"]), "", "", "", "", ""])
     return _simple_table(rows, [29 * mm, 14 * mm, 40 * mm, 14 * mm, 14 * mm, 57 * mm], right_columns={3, 4})
+
+
+def _weekly_closing_work_logs_table(work_logs: Sequence[Any]) -> Table:
+    styles = _styles()
+    rows: list[list[Any]] = [
+        [
+            Paragraph("Data", styles["body_bold"]),
+            Paragraph("Entrada", styles["body_bold"]),
+            Paragraph("Saida", styles["body_bold"]),
+            Paragraph("Liquidas", styles["body_bold"]),
+            Paragraph("Extras", styles["body_bold"]),
+            Paragraph("Total", styles["body_bold"]),
+        ]
+    ]
+    for log in sorted(work_logs, key=lambda item: item.work_date):
+        rows.append(
+            [
+                Paragraph(_text(date_text(log.work_date)), styles["body_bold"]),
+                Paragraph(_text(time_text(log.clock_in)), styles["body"]),
+                Paragraph(_text(time_text(log.clock_out)), styles["body"]),
+                Paragraph(_text(duration(log.net_hours)), styles["right"]),
+                Paragraph(_text(duration(log.overtime_hours)), styles["right"]),
+                Paragraph(money(log.total_amount), styles["right"]),
+            ]
+        )
+
+    if len(rows) == 1:
+        rows.append([Paragraph("Nenhum dia vinculado.", styles["body"]), "", "", "", "", ""])
+
+    return _simple_table(rows, [27 * mm, 22 * mm, 22 * mm, 28 * mm, 28 * mm, 41 * mm], right_columns={3, 4, 5})
+
+
+def _signature_table(employee_name: str, pix_text: str, notes: object) -> Table:
+    styles = _styles()
+    rows = [
+        [
+            [
+                Paragraph("FUNCIONARIO", styles["label"]),
+                Paragraph(_text(employee_name), styles["body_bold"]),
+            ],
+            [
+                Paragraph("PIX", styles["label"]),
+                Paragraph(_text(pix_text), styles["body"]),
+            ],
+        ],
+        [
+            [
+                Paragraph("OBSERVACOES", styles["label"]),
+                Paragraph(_text(_optional_text(notes)), styles["body"]),
+            ],
+            [
+                Paragraph("DATA DA ASSINATURA", styles["label"]),
+                Paragraph("____/____/________", styles["body_bold"]),
+            ],
+        ],
+        [
+            [
+                Paragraph("ASSINATURA DO FUNCIONARIO", styles["label"]),
+                Spacer(1, 16),
+                Paragraph("____________________________________________", styles["body_bold"]),
+            ],
+            [
+                Paragraph("ASSINATURA DA EMPRESA", styles["label"]),
+                Spacer(1, 16),
+                Paragraph("____________________________________________", styles["body_bold"]),
+            ],
+        ],
+    ]
+    table = Table(rows, colWidths=[84 * mm, 84 * mm], hAlign="LEFT")
+    table.setStyle(_card_table_style())
+    return table
+
+
+def _weekly_closing_pix_text(closing: WeeklyClosing) -> str:
+    if not closing.employee_pix_key:
+        return "Pix pendente"
+    if not closing.employee_pix_key_type:
+        return closing.employee_pix_key
+    return f"{_enum_label(closing.employee_pix_key_type, PIX_KEY_TYPE_LABELS)} / {closing.employee_pix_key}"
 
 
 def _simple_table(

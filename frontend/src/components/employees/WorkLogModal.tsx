@@ -18,6 +18,11 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function currentTime24() {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
+
 const paymentModeLabels: Record<WorkPaymentMode, string> = {
   full_day: "Diaria cheia",
   proportional_hours: "Proporcional por horas"
@@ -35,7 +40,7 @@ export function WorkLogModal({ employee, onClose, onCreated }: Props) {
   useEffect(() => {
     if (employee) {
       setWorkDate(today());
-      setClockIn("07:00");
+      setClockIn(currentTime24());
       setBreakHours(employee.standard_lunch_hours);
       setPaymentMode("full_day");
       setNotes("");

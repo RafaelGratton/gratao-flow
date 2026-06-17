@@ -3,6 +3,7 @@
 import { X } from "lucide-react";
 import { formatTime24 } from "@/components/employees/Time24Input";
 import type { Employee } from "@/components/employees/types";
+import { ReportDownloadButton } from "@/components/orders/reports/ReportDownloadButton";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import type { PixKeyType, WeeklyClosing, WeeklyClosingStatus } from "@/components/weekly-closings/types";
@@ -153,7 +154,13 @@ export function WeeklyClosingDetailModal({ closing, employees, onClose }: Props)
             <p className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Notas</p>
             <p className="mt-2 text-sm leading-6 text-ink">{closing.notes || "Sem notas."}</p>
           </div>
-          <div className="flex justify-end">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <ReportDownloadButton
+              endpoint={`/weekly-closings/${closing.id}/report/pdf`}
+              fileName={`fechamento-${closing.id}-assinatura.pdf`}
+            >
+              Baixar PDF assinatura
+            </ReportDownloadButton>
             <Button type="button" variant="secondary" onClick={onClose}>
               Fechar detalhe
             </Button>

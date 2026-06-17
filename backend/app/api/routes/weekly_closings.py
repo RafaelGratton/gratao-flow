@@ -2,7 +2,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -13,6 +13,7 @@ from app.models.enums import EmployeePaymentStatus, WeeklyClosingStatus
 from app.models.user import User
 from app.models.weekly_closing import WeeklyClosing
 from app.schemas.weekly_closing import WeeklyClosingCreate, WeeklyClosingRead
+from app.services.reports import generate_weekly_closing_report_pdf
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
 
@@ -84,6 +85,20 @@ def get_weekly_closing(
     db: Annotated[Session, Depends(get_db)],
 ) -> WeeklyClosing:
     return _get_weekly_closing_or_404(db, closing_id)
+
+
+@router.get("/{closing_id}/report/pdf")
+def get_weekly_closing_report_pdf(
+    closing_id: int,
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    closing = _get_weekly_closing_or_404(db, closing_id)
+    pdf = generate_weekly_closing_report_pdf(closing)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="weekly-closing-{closing_id}-signature.pdf"'},
+    )
 
 
 @router.post("/{closing_id}/close", response_model=WeeklyClosingRead)
