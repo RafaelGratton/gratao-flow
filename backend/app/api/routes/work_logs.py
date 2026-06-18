@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -14,9 +15,12 @@ from app.api.routes.employees import (
 from app.db.session import get_db
 from app.models.employee import Employee, EmployeeWorkLog
 from app.models.enums import EmployeePaymentStatus
+from app.models.user import User
+from app.models.weekly_closing import WeeklyClosing
 from app.schemas.employee import WorkLogClockOut, WorkLogRead, WorkLogUpdate
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
+MONEY_QUANTIZER = Decimal("0.01")
 
 
 @router.get("", response_model=list[WorkLogRead])
@@ -53,9 +57,10 @@ def update_work_log(
     work_log_id: int,
     payload: WorkLogUpdate,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
 ) -> EmployeeWorkLog:
     work_log = _get_work_log_or_404(db, work_log_id)
-    ensure_work_log_can_change(work_log, db)
+    _ensure_admin_can_correct(current_user)
     employee = db.get(Employee, work_log.employee_id)
     if employee is None:
         raise HTTPException(
@@ -63,12 +68,20 @@ def update_work_log(
             detail="Employee not found",
         )
 
-    new_work_date = payload.work_date or work_log.work_date
+    provided_fields = payload.model_fields_set
+    new_work_date = payload.work_date if "work_date" in provided_fields and payload.work_date else work_log.work_date
+    closing = db.get(WeeklyClosing, work_log.weekly_closing_id) if work_log.weekly_closing_id else None
+    if closing is not None and not (closing.start_date <= new_work_date <= closing.end_date):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A data corrigida precisa permanecer dentro do periodo do fechamento semanal.",
+        )
     if new_work_date != work_log.work_date:
         existing_id = db.scalar(
             select(EmployeeWorkLog.id).where(
                 EmployeeWorkLog.employee_id == work_log.employee_id,
                 EmployeeWorkLog.work_date == new_work_date,
+                EmployeeWorkLog.id != work_log.id,
             )
         )
         if existing_id is not None:
@@ -78,8 +91,8 @@ def update_work_log(
             )
         work_log.work_date = new_work_date
 
-    clock_in = payload.clock_in or work_log.clock_in
-    clock_out = payload.clock_out or work_log.clock_out
+    clock_in = payload.clock_in if "clock_in" in provided_fields else work_log.clock_in
+    clock_out = payload.clock_out if "clock_out" in provided_fields else work_log.clock_out
     if clock_in is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -87,7 +100,7 @@ def update_work_log(
         )
 
     break_hours = payload.break_hours if payload.break_hours is not None else work_log.break_hours
-    payment_mode = payload.payment_mode or work_log.payment_mode
+    payment_mode = payload.payment_mode if "payment_mode" in provided_fields and payload.payment_mode else work_log.payment_mode
     if clock_out is None:
         calculated = open_employee_work_log_values(
             clock_in=clock_in,
@@ -102,10 +115,15 @@ def update_work_log(
             break_hours=break_hours,
             payment_mode=payment_mode,
         )
+    if payload.total_amount is not None:
+        _apply_manual_total(calculated, payload.total_amount)
     for field, value in calculated.items():
         setattr(work_log, field, value)
-    if payload.notes is not None:
+    if "notes" in provided_fields:
         work_log.notes = payload.notes
+
+    if closing is not None:
+        _refresh_weekly_closing_employee_totals(closing)
 
     db.commit()
     db.refresh(work_log)
@@ -174,3 +192,50 @@ def _get_work_log_or_404(db: Session, work_log_id: int) -> EmployeeWorkLog:
             detail="Work log not found",
         )
     return work_log
+
+
+def _ensure_admin_can_correct(current_user: User) -> None:
+    if current_user.role != "admin" and not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas usuarios admin podem corrigir registros de ponto.",
+        )
+
+
+def _apply_manual_total(calculated: dict, total_amount: Decimal) -> None:
+    total = _money(total_amount)
+    overtime = _money(calculated.get("overtime_amount", Decimal("0.00")))
+    if overtime > total:
+        overtime = Decimal("0.00")
+    base = _money(total - overtime)
+    calculated["base_amount"] = base
+    calculated["overtime_amount"] = overtime
+    calculated["total_amount"] = total
+    calculated["amount"] = total
+
+
+def _refresh_weekly_closing_employee_totals(closing: WeeklyClosing) -> None:
+    work_logs = list(closing.work_logs)
+    total_base = _sum_money(log.base_amount for log in work_logs)
+    total_overtime = _sum_money(log.overtime_amount for log in work_logs)
+    closing.days_worked = sum(1 for log in work_logs if log.net_hours > 0)
+    closing.total_gross_hours = _sum_hours(log.gross_hours for log in work_logs)
+    closing.total_break_hours = _sum_hours(log.break_hours for log in work_logs)
+    closing.total_net_hours = _sum_hours(log.net_hours for log in work_logs)
+    closing.total_regular_hours = _sum_hours(log.regular_hours for log in work_logs)
+    closing.total_overtime_hours = _sum_hours(log.overtime_hours for log in work_logs)
+    closing.total_base_amount = total_base
+    closing.total_overtime_amount = total_overtime
+    closing.total_payable = _money(total_base + total_overtime - closing.discounts - closing.advances)
+
+
+def _sum_money(values) -> Decimal:
+    return _money(sum((Decimal(value or 0) for value in values), Decimal("0")))
+
+
+def _sum_hours(values) -> Decimal:
+    return _money(sum((Decimal(value or 0) for value in values), Decimal("0")))
+
+
+def _money(value: Decimal | int | None) -> Decimal:
+    return Decimal(value or 0).quantize(MONEY_QUANTIZER, rounding=ROUND_HALF_UP)

@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut, Rows3 } from "lucide-react";
+import { LogOut, Pencil, Rows3 } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
@@ -15,6 +15,7 @@ type Props = {
   loading: boolean;
   selectedEmployee: Employee | null;
   onRegisterExit: (workLog: WorkLog) => void;
+  onCorrect: (workLog: WorkLog) => void;
   onClearFilter: () => void;
 };
 
@@ -27,7 +28,15 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
 }
 
-export function WorkLogsTable({ employees, workLogs, loading, selectedEmployee, onRegisterExit, onClearFilter }: Props) {
+export function WorkLogsTable({
+  employees,
+  workLogs,
+  loading,
+  selectedEmployee,
+  onRegisterExit,
+  onCorrect,
+  onClearFilter
+}: Props) {
   const employeeById = new Map(employees.map((employee) => [employee.id, employee.name]));
 
   return (
@@ -134,16 +143,23 @@ export function WorkLogsTable({ employees, workLogs, loading, selectedEmployee, 
                       </Badge>
                     </td>
                     <td className="border-b border-line/70 px-4 py-4">
-                      {workLog.work_status === "open" ? (
-                        <Button type="button" variant="secondary" className="h-9 px-3" onClick={() => onRegisterExit(workLog)}>
-                          <LogOut size={15} />
-                          Registrar saida
+                      <div className="flex flex-wrap gap-2">
+                        {workLog.work_status === "open" ? (
+                          <Button type="button" variant="secondary" className="h-9 px-3" onClick={() => onRegisterExit(workLog)}>
+                            <LogOut size={15} />
+                            Registrar saida
+                          </Button>
+                        ) : null}
+                        <Button type="button" variant="ghost" className="h-9 px-3" onClick={() => onCorrect(workLog)}>
+                          <Pencil size={15} />
+                          Corrigir
                         </Button>
-                      ) : (
-                        <span className="text-xs font-semibold text-muted">
+                      </div>
+                      {workLog.work_status !== "open" ? (
+                        <p className="mt-2 text-xs font-semibold text-muted">
                           {workLog.weekly_closing_id ? `Fechamento #${workLog.weekly_closing_id}` : "Pronto para fechamento"}
-                        </span>
-                      )}
+                        </p>
+                      ) : null}
                       {workLog.paid_at ? (
                         <p className="mt-2 text-xs font-semibold text-muted">{formatDateTime(workLog.paid_at)}</p>
                       ) : null}

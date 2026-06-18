@@ -132,6 +132,7 @@ class WorkLogUpdate(BaseModel):
     clock_out: time | None = None
     break_hours: HoursDecimal | None = None
     payment_mode: WorkPaymentMode | None = None
+    total_amount: MoneyDecimal | None = None
     notes: str | None = None
 
 

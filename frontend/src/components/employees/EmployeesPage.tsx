@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { EmployeeModal } from "@/components/employees/EmployeeModal";
 import { EmployeeSummaryCards } from "@/components/employees/EmployeeSummaryCards";
 import { EmployeeTable } from "@/components/employees/EmployeeTable";
+import { WorkLogCorrectionModal } from "@/components/employees/WorkLogCorrectionModal";
 import { WorkLogExitModal } from "@/components/employees/WorkLogExitModal";
 import { WorkLogModal } from "@/components/employees/WorkLogModal";
 import { WorkLogsTable } from "@/components/employees/WorkLogsTable";
@@ -22,6 +23,7 @@ export function EmployeesPage() {
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [workLogEmployee, setWorkLogEmployee] = useState<Employee | null>(null);
   const [exitingWorkLog, setExitingWorkLog] = useState<WorkLog | null>(null);
+  const [correctingWorkLog, setCorrectingWorkLog] = useState<WorkLog | null>(null);
   const [closingEmployee, setClosingEmployee] = useState<Employee | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
 
@@ -74,6 +76,11 @@ export function EmployeesPage() {
     setFeedback("Saida registrada e diaria calculada.");
   }
 
+  function handleWorkLogCorrected(workLog: WorkLog) {
+    setWorkLogs((current) => current.map((item) => (item.id === workLog.id ? workLog : item)));
+    setFeedback("Ponto corrigido com sucesso.");
+  }
+
   function handleWeeklyClosingCreated(_closing: WeeklyClosing) {
     setFeedback("Fechamento semanal criado com sucesso.");
     void load();
@@ -81,6 +88,9 @@ export function EmployeesPage() {
 
   const exitingEmployee = exitingWorkLog
     ? employees.find((employee) => employee.id === exitingWorkLog.employee_id) ?? null
+    : null;
+  const correctingEmployee = correctingWorkLog
+    ? employees.find((employee) => employee.id === correctingWorkLog.employee_id) ?? null
     : null;
 
   return (
@@ -124,6 +134,7 @@ export function EmployeesPage() {
         loading={loading}
         selectedEmployee={selectedEmployee}
         onRegisterExit={setExitingWorkLog}
+        onCorrect={setCorrectingWorkLog}
         onClearFilter={() => setSelectedEmployee(null)}
       />
 
@@ -146,6 +157,12 @@ export function EmployeesPage() {
         employee={exitingEmployee}
         onClose={() => setExitingWorkLog(null)}
         onSaved={handleWorkLogSaved}
+      />
+      <WorkLogCorrectionModal
+        workLog={correctingWorkLog}
+        employee={correctingEmployee}
+        onClose={() => setCorrectingWorkLog(null)}
+        onSaved={handleWorkLogCorrected}
       />
       <WeeklyClosingCreateModal
         open={closingEmployee !== null}
