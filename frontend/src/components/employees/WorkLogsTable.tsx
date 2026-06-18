@@ -68,7 +68,7 @@ export function WorkLogsTable({
             <EmptyState
               icon={<Rows3 size={20} />}
               title="Nenhum registro encontrado"
-              description="Registre entrada, saida e intervalo para calcular diaria e horas extras."
+              description="Registre um ou mais periodos no dia para calcular diaria e horas extras."
             />
           </div>
         ) : (

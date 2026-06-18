@@ -212,7 +212,7 @@ def _calculate_employee_totals(
     total_payable = _money(total_base + total_overtime - discounts - advances)
 
     return {
-        "days_worked": sum(1 for log in work_logs if log.net_hours > 0),
+        "days_worked": len({log.work_date for log in work_logs if log.net_hours > 0}),
         "total_gross_hours": _sum_hours(log.gross_hours for log in work_logs),
         "total_break_hours": _sum_hours(log.break_hours for log in work_logs),
         "total_net_hours": _sum_hours(log.net_hours for log in work_logs),

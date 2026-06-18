@@ -80,7 +80,13 @@ def create_employee_work_log(
     db: Annotated[Session, Depends(get_db)],
 ) -> EmployeeWorkLog:
     employee = _get_employee_or_404(db, employee_id)
-    _ensure_work_log_does_not_exist(db, employee.id, payload.work_date)
+    ensure_work_log_does_not_overlap(
+        db=db,
+        employee_id=employee.id,
+        work_date=payload.work_date,
+        clock_in=payload.clock_in,
+        clock_out=payload.clock_out,
+    )
 
     if payload.clock_out is None:
         calculated = _open_work_log_values(
@@ -104,6 +110,8 @@ def create_employee_work_log(
         **calculated,
     )
     db.add(work_log)
+    db.flush()
+    recalculate_employee_work_day(db, employee, payload.work_date)
     db.commit()
     db.refresh(work_log)
     return work_log
@@ -141,6 +149,95 @@ def open_employee_work_log_values(
     return _open_work_log_values(clock_in, break_hours, payment_mode)
 
 
+def recalculate_employee_work_day(db: Session, employee: Employee, work_date: date) -> None:
+    query = (
+        select(EmployeeWorkLog)
+        .where(
+            EmployeeWorkLog.employee_id == employee.id,
+            EmployeeWorkLog.work_date == work_date,
+        )
+        .order_by(EmployeeWorkLog.clock_in, EmployeeWorkLog.id)
+    )
+    work_logs = list(db.scalars(query))
+    completed_logs: list[tuple[EmployeeWorkLog, dict[str, Decimal | WorkPaymentMode | WorkType | time]]] = []
+    regular_hours_left = employee.standard_daily_hours
+    hourly_rate = _money(employee.daily_rate / employee.standard_daily_hours)
+
+    for work_log in work_logs:
+        if work_log.clock_out is None:
+            for field, value in _open_work_log_values(
+                clock_in=work_log.clock_in,
+                break_hours=work_log.break_hours,
+                payment_mode=work_log.payment_mode,
+            ).items():
+                setattr(work_log, field, value)
+            continue
+
+        gross_hours = _time_delta_hours(work_log.clock_in, work_log.clock_out)
+        if work_log.break_hours > gross_hours:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Intervalo nao pode ser maior que as horas brutas.",
+            )
+        net_hours = _hours(gross_hours - work_log.break_hours)
+        regular_hours = _hours(min(net_hours, regular_hours_left))
+        overtime_hours = _hours(max(net_hours - regular_hours, Decimal("0")))
+        regular_hours_left = _hours(max(regular_hours_left - regular_hours, Decimal("0")))
+        completed_logs.append(
+            (
+                work_log,
+                {
+                    "clock_in": work_log.clock_in,
+                    "clock_out": work_log.clock_out,
+                    "break_hours": _hours(work_log.break_hours),
+                    "gross_hours": gross_hours,
+                    "net_hours": net_hours,
+                    "regular_hours": regular_hours,
+                    "overtime_hours": overtime_hours,
+                    "payment_mode": work_log.payment_mode,
+                    "work_type": _legacy_work_type(
+                        work_log.payment_mode,
+                        net_hours,
+                        regular_hours,
+                        employee.standard_daily_hours,
+                    ),
+                    "base_amount": Decimal("0.00"),
+                    "overtime_amount": _money(overtime_hours * hourly_rate),
+                    "total_amount": Decimal("0.00"),
+                    "amount": Decimal("0.00"),
+                },
+            )
+        )
+
+    if not completed_logs:
+        return
+
+    day_uses_full_day = any(
+        work_log.payment_mode == WorkPaymentMode.FULL_DAY for work_log, _values in completed_logs
+    )
+    total_net_hours = _sum_hours(values["net_hours"] for _work_log, values in completed_logs)
+    base_pool = _money(employee.daily_rate if day_uses_full_day and total_net_hours > 0 else Decimal("0.00"))
+    allocated_base = Decimal("0.00")
+
+    for index, (work_log, values) in enumerate(completed_logs):
+        if day_uses_full_day:
+            if index == len(completed_logs) - 1:
+                base_amount = _money(base_pool - allocated_base)
+            else:
+                share = Decimal(values["net_hours"]) / total_net_hours if total_net_hours > 0 else Decimal("0")
+                base_amount = _money(base_pool * share)
+                allocated_base += base_amount
+        else:
+            base_amount = _money(Decimal(values["regular_hours"]) * hourly_rate)
+
+        total_amount = _money(base_amount + Decimal(values["overtime_amount"]))
+        values["base_amount"] = base_amount
+        values["total_amount"] = total_amount
+        values["amount"] = total_amount
+        for field, value in values.items():
+            setattr(work_log, field, value)
+
+
 def _get_employee_or_404(db: Session, employee_id: int) -> Employee:
     employee = db.get(Employee, employee_id)
     if employee is None:
@@ -151,18 +248,51 @@ def _get_employee_or_404(db: Session, employee_id: int) -> Employee:
     return employee
 
 
-def _ensure_work_log_does_not_exist(db: Session, employee_id: int, work_date: date) -> None:
-    existing_id = db.scalar(
-        select(EmployeeWorkLog.id).where(
-            EmployeeWorkLog.employee_id == employee_id,
-            EmployeeWorkLog.work_date == work_date,
-        )
+def ensure_work_log_does_not_overlap(
+    db: Session,
+    employee_id: int,
+    work_date: date,
+    clock_in: time,
+    clock_out: time | None,
+    exclude_work_log_id: int | None = None,
+) -> None:
+    query = select(EmployeeWorkLog).where(
+        EmployeeWorkLog.employee_id == employee_id,
+        EmployeeWorkLog.work_date == work_date,
     )
-    if existing_id is not None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Employee already has a work log for this date",
-        )
+    if exclude_work_log_id is not None:
+        query = query.where(EmployeeWorkLog.id != exclude_work_log_id)
+
+    existing_logs = list(db.scalars(query))
+    for existing in existing_logs:
+        if existing.clock_out is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Finalize a saida aberta antes de registrar outro periodo neste dia.",
+            )
+        if clock_out is None:
+            if clock_in < existing.clock_out:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="A entrada informada sobrepoe um periodo ja registrado neste dia.",
+                )
+            continue
+        if _time_ranges_overlap(clock_in, clock_out, existing.clock_in, existing.clock_out):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Este periodo sobrepoe outro registro do funcionario no mesmo dia.",
+            )
+
+
+def _time_ranges_overlap(
+    start: time,
+    end: time,
+    existing_start: time | None,
+    existing_end: time | None,
+) -> bool:
+    if existing_start is None or existing_end is None:
+        return True
+    return start < existing_end and end > existing_start
 
 
 def _calculate_work_log(
@@ -261,6 +391,10 @@ def _money(value: Decimal) -> Decimal:
 
 def _hours(value: Decimal) -> Decimal:
     return value.quantize(HOUR_QUANTIZER, rounding=ROUND_HALF_UP)
+
+
+def _sum_hours(values) -> Decimal:
+    return _hours(sum((Decimal(value or 0) for value in values), Decimal("0")))
 
 
 def _apply_date_filters(query, start_date: date | None, end_date: date | None):

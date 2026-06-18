@@ -53,7 +53,7 @@ export function WorkLogModal({ employee, onClose, onCreated }: Props) {
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!employee) {
-      setError("Selecione um funcionario antes de registrar a entrada.");
+      setError("Selecione um funcionario antes de registrar o periodo.");
       return;
     }
     if (!workDate || !clockIn) {
@@ -82,7 +82,7 @@ export function WorkLogModal({ employee, onClose, onCreated }: Props) {
       onCreated(workLog);
       onClose();
     } catch (requestError) {
-      const message = requestError instanceof Error ? requestError.message : "Nao foi possivel registrar a entrada.";
+      const message = requestError instanceof Error ? requestError.message : "Nao foi possivel registrar o periodo.";
       setError(message.includes("already has") ? "Ja existe registro para este funcionario nessa data." : message);
     } finally {
       setSubmitting(false);
@@ -95,7 +95,7 @@ export function WorkLogModal({ employee, onClose, onCreated }: Props) {
         <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent-dark">{employee.name}</p>
-            <h2 className="mt-1 text-xl font-black text-ink">Registrar entrada</h2>
+            <h2 className="mt-1 text-xl font-black text-ink">Registrar entrada ou retorno</h2>
           </div>
           <button
             type="button"
@@ -153,7 +153,7 @@ export function WorkLogModal({ employee, onClose, onCreated }: Props) {
             </Button>
             <Button type="submit" isLoading={submitting}>
               <LogIn size={18} />
-              Registrar entrada
+              Registrar periodo
             </Button>
           </div>
         </form>

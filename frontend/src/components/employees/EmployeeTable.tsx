@@ -100,7 +100,7 @@ export function EmployeeTable({ employees, loading, onCreate, onEdit, onRegister
                         </Button>
                         <Button type="button" variant="secondary" className="h-9 px-3" onClick={() => onRegisterDay(employee)}>
                           <CalendarPlus size={15} />
-                          Entrada
+                          Entrada ou retorno
                         </Button>
                         <Button type="button" variant="ghost" className="h-9 px-3" onClick={() => onCloseWeek(employee)}>
                           <CalendarCheck2 size={15} />

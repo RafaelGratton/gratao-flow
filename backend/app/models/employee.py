@@ -12,7 +12,6 @@ from sqlalchemy import (
     String,
     Text,
     Time,
-    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -67,9 +66,6 @@ class Employee(Base):
 
 class EmployeeWorkLog(Base):
     __tablename__ = "employee_work_logs"
-    __table_args__ = (
-        UniqueConstraint("employee_id", "work_date", name="uq_employee_work_logs_employee_date"),
-    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     employee_id: Mapped[int] = mapped_column(ForeignKey("employees.id"), nullable=False)

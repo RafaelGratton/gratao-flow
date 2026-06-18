@@ -10,7 +10,9 @@ from app.api.deps import get_current_user
 from app.api.routes.employees import (
     calculate_employee_work_log,
     ensure_work_log_can_change,
+    ensure_work_log_does_not_overlap,
     open_employee_work_log_values,
+    recalculate_employee_work_day,
 )
 from app.db.session import get_db
 from app.models.employee import Employee, EmployeeWorkLog
@@ -69,27 +71,15 @@ def update_work_log(
         )
 
     provided_fields = payload.model_fields_set
-    new_work_date = payload.work_date if "work_date" in provided_fields and payload.work_date else work_log.work_date
+    old_work_date = work_log.work_date
+    new_work_date = payload.work_date if "work_date" in provided_fields and payload.work_date else old_work_date
     closing = db.get(WeeklyClosing, work_log.weekly_closing_id) if work_log.weekly_closing_id else None
     if closing is not None and not (closing.start_date <= new_work_date <= closing.end_date):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A data corrigida precisa permanecer dentro do periodo do fechamento semanal.",
         )
-    if new_work_date != work_log.work_date:
-        existing_id = db.scalar(
-            select(EmployeeWorkLog.id).where(
-                EmployeeWorkLog.employee_id == work_log.employee_id,
-                EmployeeWorkLog.work_date == new_work_date,
-                EmployeeWorkLog.id != work_log.id,
-            )
-        )
-        if existing_id is not None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Employee already has a work log for this date",
-            )
-        work_log.work_date = new_work_date
+    work_log.work_date = new_work_date
 
     clock_in = payload.clock_in if "clock_in" in provided_fields else work_log.clock_in
     clock_out = payload.clock_out if "clock_out" in provided_fields else work_log.clock_out
@@ -101,6 +91,14 @@ def update_work_log(
 
     break_hours = payload.break_hours if payload.break_hours is not None else work_log.break_hours
     payment_mode = payload.payment_mode if "payment_mode" in provided_fields and payload.payment_mode else work_log.payment_mode
+    ensure_work_log_does_not_overlap(
+        db=db,
+        employee_id=work_log.employee_id,
+        work_date=new_work_date,
+        clock_in=clock_in,
+        clock_out=clock_out,
+        exclude_work_log_id=work_log.id,
+    )
     if clock_out is None:
         calculated = open_employee_work_log_values(
             clock_in=clock_in,
@@ -122,6 +120,10 @@ def update_work_log(
     if "notes" in provided_fields:
         work_log.notes = payload.notes
 
+    if payload.total_amount is None:
+        recalculate_employee_work_day(db, employee, new_work_date)
+        if new_work_date != old_work_date:
+            recalculate_employee_work_day(db, employee, old_work_date)
     if closing is not None:
         _refresh_weekly_closing_employee_totals(closing)
 
@@ -156,6 +158,14 @@ def clock_out_work_log(
             detail="Employee not found",
         )
 
+    ensure_work_log_does_not_overlap(
+        db=db,
+        employee_id=work_log.employee_id,
+        work_date=work_log.work_date,
+        clock_in=work_log.clock_in,
+        clock_out=payload.clock_out,
+        exclude_work_log_id=work_log.id,
+    )
     calculated = calculate_employee_work_log(
         employee=employee,
         clock_in=work_log.clock_in,
@@ -168,6 +178,7 @@ def clock_out_work_log(
     if payload.notes is not None:
         work_log.notes = payload.notes
 
+    recalculate_employee_work_day(db, employee, work_log.work_date)
     db.commit()
     db.refresh(work_log)
     return work_log
@@ -180,7 +191,19 @@ def delete_work_log(
 ) -> None:
     work_log = _get_work_log_or_404(db, work_log_id)
     ensure_work_log_can_change(work_log, db)
+    employee = db.get(Employee, work_log.employee_id)
+    if employee is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Employee not found",
+        )
+    work_date = work_log.work_date
+    closing = db.get(WeeklyClosing, work_log.weekly_closing_id) if work_log.weekly_closing_id else None
     db.delete(work_log)
+    db.flush()
+    recalculate_employee_work_day(db, employee, work_date)
+    if closing is not None:
+        _refresh_weekly_closing_employee_totals(closing)
     db.commit()
 
 
@@ -218,7 +241,7 @@ def _refresh_weekly_closing_employee_totals(closing: WeeklyClosing) -> None:
     work_logs = list(closing.work_logs)
     total_base = _sum_money(log.base_amount for log in work_logs)
     total_overtime = _sum_money(log.overtime_amount for log in work_logs)
-    closing.days_worked = sum(1 for log in work_logs if log.net_hours > 0)
+    closing.days_worked = len({log.work_date for log in work_logs if log.net_hours > 0})
     closing.total_gross_hours = _sum_hours(log.gross_hours for log in work_logs)
     closing.total_break_hours = _sum_hours(log.break_hours for log in work_logs)
     closing.total_net_hours = _sum_hours(log.net_hours for log in work_logs)
